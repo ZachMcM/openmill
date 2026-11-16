@@ -1,0 +1,33 @@
+{
+  "name": "openmill",
+  "version": "0.0.0",
+  "description": "A local software factory that turns design docs into pull requests.",
+  "license": "MIT",
+  "bin": {
+    "openmill": "./dist/main.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "tsdown",
+    "dev": "node --watch src/main.ts",
+    "typecheck": "tsc",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "commander": "^15.1.0"
+  },
+  "devDependencies": {
+    "@openmill/db": "workspace:*",
+    "@openmill/server": "workspace:*",
+    "@types/node": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
