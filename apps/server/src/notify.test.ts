@@ -24,7 +24,7 @@ const job = {
 
 const reason = `Should "sessions" expire? It's unclear.\nMore detail here.`;
 const payload = notificationPayload("needs_input", job, reason);
-const body = `Should "sessions" expire? It's unclear.\nopenmill show add-login`;
+const body = `Should "sessions" expire? It's unclear. More detail here.`;
 const platform = process.platform;
 
 function setPlatform(value: NodeJS.Platform): void {
@@ -71,7 +71,7 @@ describe("desktop notifications", () => {
     const { command, args } = desktopCall();
 
     expect(command).toBe("osascript");
-    expect(args.slice(-2)).toEqual(["openmill: add-login needs_input", body]);
+    expect(args.slice(-2)).toEqual(["openmill: add-login needs input", body]);
     expect(args.slice(0, -2).join(" ")).not.toContain("sessions");
   });
 
@@ -81,7 +81,7 @@ describe("desktop notifications", () => {
 
     expect(desktopCall()).toMatchObject({
       command: "notify-send",
-      args: ["--", "openmill: add-login needs_input", body],
+      args: ["--", "openmill: add-login needs input", body],
     });
   });
 
@@ -94,7 +94,7 @@ describe("desktop notifications", () => {
     expect(command).toBe("powershell");
     expect(args.join(" ")).not.toContain("sessions");
     expect(env).toMatchObject({
-      OPENMILL_NOTIFY_TITLE: "openmill: add-login needs_input",
+      OPENMILL_NOTIFY_TITLE: "openmill: add-login needs input",
       OPENMILL_NOTIFY_BODY: body,
     });
   });
