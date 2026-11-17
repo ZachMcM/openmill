@@ -1,3 +1,6 @@
+import { stripVTControlCharacters as visible } from "node:util";
+import pc from "picocolors";
+
 type Body<R> = R extends { json(): Promise<infer T> } ? T : never;
 
 export async function unwrap<R extends { ok: boolean; json(): Promise<unknown> }>(
@@ -17,13 +20,13 @@ export async function unwrap<R extends { ok: boolean; json(): Promise<unknown> }
 
 export function table(header: string[], rows: string[][]): string {
   const widths = header.map((title, column) =>
-    Math.max(title.length, ...rows.map((row) => (row[column] ?? "").length)),
+    Math.max(title.length, ...rows.map((row) => visible(row[column] ?? "").length)),
   );
 
-  return [header, ...rows]
+  return [header.map((title) => pc.dim(title)), ...rows]
     .map((row) =>
       row
-        .map((cell, column) => cell.padEnd(widths[column] ?? 0))
+        .map((cell, column) => cell + " ".repeat((widths[column] ?? 0) - visible(cell).length))
         .join("  ")
         .trimEnd(),
     )

@@ -11,9 +11,12 @@ import { InvalidArgumentError, Command } from "commander";
 import pkg from "../package.json" with { type: "json" };
 import { startServer } from "@openmill/server";
 import type { Client } from "@openmill/server/client";
-import { connect, isRunning, localClient } from "./connect.ts";
+import pc from "picocolors";
+import { connect, isRunning, localClient, stopServer } from "./connect.ts";
 import { collectDocs } from "./docs.ts";
+import { install, uninstall } from "./install.ts";
 import { table, unwrap } from "./output.ts";
+import { command, fail, spin, state, warn } from "./ui.ts";
 
 function option<T>(parse: (value: string) => ParsedValue<T>) {
   return (value: string): T => {
@@ -34,7 +37,7 @@ async function runningClient(): Promise<Client | undefined> {
     return client;
   }
 
-  console.log("not running");
+  console.log(pc.dim("not running"));
 
   return undefined;
 }
@@ -58,26 +61,30 @@ program
     const { docs, warnings } = await collectDocs(paths, process.cwd());
 
     for (const warning of warnings) {
-      console.warn(`warning: ${warning}`);
+      warn(warning);
     }
 
     const client = await connect();
-    const { jobs } = await unwrap(
-      client.jobs.$post({
-        json: {
-          repo: options.repo ?? process.cwd(),
-          base: options.base,
-          harness: options.harness,
-          model: options.model,
-          effort: options.effort,
-          force: options.force,
-          docs,
-        },
-      }),
+    const { jobs } = await spin(`queuing ${docs.length} docs`, () =>
+      unwrap(
+        client.jobs.$post({
+          json: {
+            repo: options.repo ?? process.cwd(),
+            base: options.base,
+            harness: options.harness,
+            model: options.model,
+            effort: options.effort,
+            force: options.force,
+            docs,
+          },
+        }),
+      ),
     );
 
     for (const job of jobs) {
-      console.log(`${job.action} ${job.id}`);
+      console.log(
+        `${job.action === "unchanged" ? pc.dim(job.action) : pc.green(job.action)} ${pc.bold(job.id)}`,
+      );
     }
   });
 
@@ -91,10 +98,10 @@ program
       table(
         ["ID", "STATE", "REASON", "SESSION", "PR"],
         jobs.map((job) => [
-          job.id,
-          job.state,
+          pc.bold(job.id),
+          state(job.state),
           job.reason ?? "",
-          job.sessionId ?? "",
+          pc.dim(job.sessionId ?? ""),
           job.prUrl ?? "",
         ]),
       ),
@@ -109,20 +116,21 @@ program
     const job = await unwrap(
       (await connect()).jobs[":id"].$get({ param: { id }, query: { repo: process.cwd() } }),
     );
-    const lines = [
-      `id:        ${job.id}`,
-      `repo:      ${job.repo}`,
-      `state:     ${job.state}${job.reason ? ` (${job.reason})` : ""}`,
-      `branch:    ${job.branch}${job.prBaseBranch ? ` -> ${job.prBaseBranch}` : ""}`,
-      `worktree:  ${job.worktree}`,
-      `session:   ${job.sessionId ?? "-"}`,
-      `pr:        ${job.prUrl ?? "-"}`,
-      `log:       ${job.logPath ?? "-"}`,
-      `result:    ${job.lastResult ? JSON.stringify(job.lastResult) : "-"}`,
+    const fields: Array<[string, string]> = [
+      ["id", pc.bold(job.id)],
+      ["repo", job.repo],
+      ["state", `${state(job.state)}${job.reason ? ` (${job.reason})` : ""}`],
+      ["branch", `${job.branch}${job.prBaseBranch ? ` -> ${job.prBaseBranch}` : ""}`],
+      ["worktree", job.worktree],
+      ["session", job.sessionId ?? "-"],
+      ["pr", job.prUrl ?? "-"],
+      ["log", job.logPath ?? "-"],
+      ["result", job.lastResult ? JSON.stringify(job.lastResult) : "-"],
     ];
+    const lines = fields.map(([label, value]) => `${pc.dim(`${label}:`.padEnd(11))}${value}`);
 
     if (job.resumeCommand) {
-      lines.push("", "Resume the session:", `  ${job.resumeCommand}`);
+      lines.push("", "Resume the session:", `  ${command(job.resumeCommand)}`);
     }
 
     console.log(lines.join("\n"));
@@ -133,11 +141,13 @@ program
   .description("abort a running job so you can take it over")
   .argument("<id>")
   .action(async (id: string) => {
-    const { state } = await unwrap(
+    const result = await unwrap(
       (await connect()).jobs[":id"].stop.$post({ param: { id }, query: { repo: process.cwd() } }),
     );
 
-    console.log(`${id} is ${state}. Run \`openmill show ${id}\` for the resume command.`);
+    console.log(
+      `${pc.bold(id)} is ${state(result.state)}. Run ${command(`openmill show ${id}`)} for the resume command.`,
+    );
   });
 
 program
@@ -145,14 +155,14 @@ program
   .description("hand a paused, needs_input, or failed job back to the queue")
   .argument("<id>")
   .action(async (id: string) => {
-    const { state } = await unwrap(
+    const result = await unwrap(
       (await connect()).jobs[":id"].requeue.$post({
         param: { id },
         query: { repo: process.cwd() },
       }),
     );
 
-    console.log(`${id} is ${state}`);
+    console.log(`${pc.bold(id)} is ${state(result.state)}`);
   });
 
 const config = program.command("config").description("read and write config.json");
@@ -184,7 +194,10 @@ config.command("list").action(async () => {
   console.log(
     table(
       ["KEY", "VALUE"],
-      CONFIG_KEYS.map((key) => [key, String(values[key] ?? "(harness default)")]),
+      CONFIG_KEYS.map((key) => [
+        key,
+        values[key] === undefined ? pc.dim("(harness default)") : String(values[key]),
+      ]),
     ),
   );
 });
@@ -201,7 +214,7 @@ server.command("status").action(async () => {
   const status = await unwrap(client.status.$get());
 
   console.log(
-    `running (pid ${status.pid}), ${status.running} running jobs, ${status.queued} queued`,
+    `${pc.green("running")} ${status.version} (pid ${status.pid}), ${status.running} running jobs, ${status.queued} queued`,
   );
 });
 
@@ -212,7 +225,7 @@ server.command("stop").action(async () => {
     return;
   }
 
-  await unwrap(client.shutdown.$post());
+  await spin("stopping the server", () => stopServer(client));
   console.log("stopped");
 });
 
@@ -220,7 +233,10 @@ server
   .command("run", { hidden: true })
   .description("run the server in the foreground")
   .action(async () => {
-    const running = await startServer({ log: (message) => console.error(message) });
+    const running = await startServer({
+      version: pkg.version,
+      log: (message) => console.error(message),
+    });
 
     for (const signal of ["SIGINT", "SIGTERM"] as const) {
       process.on(signal, () => void running.close());
@@ -229,9 +245,22 @@ server
     await running.closed;
   });
 
+program
+  .command("install")
+  .description("install openmill globally and set up the Claude plugin")
+  .option("-y, --yes", "accept defaults without prompting", false)
+  .action(install);
+
+program
+  .command("uninstall")
+  .description("remove the Claude plugin and the global package")
+  .option("--purge", "also delete the openmill home directory", false)
+  .option("-y, --yes", "don't ask before deleting", false)
+  .action(uninstall);
+
 try {
   await program.parseAsync();
 } catch (error) {
-  console.error(`error: ${(error as Error).message}`);
+  fail((error as Error).message);
   process.exitCode = 1;
 }

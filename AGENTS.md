@@ -18,18 +18,20 @@ Use pnpm for everything. Never use npm or yarn, and never edit `pnpm-lock.yaml` 
 
 ## Boundaries
 
-| Package                                | Owns                                                                                        | May depend on                   |
-| -------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------- |
-| `@openmill/core` (`packages/core`)     | Design doc parsing, dependency graph, state transitions, scheduling decisions, config rules | nothing in the workspace        |
-| `@openmill/db` (`packages/db`)         | Drizzle schema, migrations, queries                                                         | nothing in the workspace        |
-| `@openmill/assets` (`packages/assets`) | The workflow skill and review agents, laid out as a Claude Code plugin                      | nothing in the workspace        |
-| `@openmill/server` (`apps/server`)     | Hono routes, scheduler, runs, git and `gh` calls, harness adapters                          | core, db, assets                |
-| `openmill` (`apps/cli`)                | Commander commands, the typed client, server auto-start                                     | core, server (client and types) |
+| Package                                | Owns                                                                                        | May depend on            |
+| -------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------ |
+| `@openmill/core` (`packages/core`)     | Design doc parsing, dependency graph, state transitions, scheduling decisions, config rules | nothing in the workspace |
+| `@openmill/db` (`packages/db`)         | Drizzle schema, migrations, queries                                                         | nothing in the workspace |
+| `@openmill/assets` (`packages/assets`) | The workflow skill and review agents, laid out as a Claude Code plugin                      | nothing in the workspace |
+| `@openmill/server` (`apps/server`)     | Hono routes, scheduler, runs, git and `gh` calls, harness adapters                          | core, db, assets         |
+| `openmill` (`apps/cli`)                | Commander commands, the typed client, server auto-start, `install` and `uninstall`          | core, server, assets     |
 
 - `core` does no I/O: no filesystem, network, processes, or clock. Keep it pure so it stays easy to unit test.
 - The server is the only process that opens SQLite. The CLI never imports `@openmill/db` and talks to the server only through the typed client from `@openmill/server/client`.
 - Request and response shapes come from the server's Hono routes. Don't redeclare them in the CLI.
-- Only the server runs `git`, `gh`, and agent harnesses.
+- Only the server runs `git`, `gh`, and agent harnesses. The one exception is `openmill install`
+  and `uninstall`, which run in the CLI before a server exists. They may check that `git` and `gh`
+  are installed and run `npm` and `claude plugin`, and nothing else.
 - Every harness implements the `Harness` interface in `apps/server/src/harness/types.ts`. Harness-specific code stays in its adapter.
 - Keep the workflow skill usable by hand. Pass run-specific facts in the prompt instead of editing the skill for openmill.
 
@@ -42,6 +44,7 @@ Use pnpm for everything. Never use npm or yarn, and never edit `pnpm-lock.yaml` 
 - The scheduler is event-driven. Don't add polling or timers to it.
 - Agents run with full local permissions. Never weaken the draft-only, no-merge rules in the workflow skill.
 - Target Node 24 or later and ES modules. Workspace packages export TypeScript source directly. Only the CLI is bundled, with tsdown.
+- The CLI bundle inlines `@openmill/*` packages, so any third-party package they import at runtime must also be in `apps/cli` `dependencies`. Files found through `import.meta.url` must be copied into `dist/` in `apps/cli/tsdown.config.ts`.
 
 ## Comments
 

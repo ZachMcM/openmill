@@ -8,3 +8,5 @@ coverage/
 *.db-shm
 .DS_Store
 .design-docs/
+apps/cli/README.md
+*.tgz

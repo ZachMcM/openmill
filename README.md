@@ -15,9 +15,29 @@ already use.
 
 ## Install
 
+Requires Node 24 or later, `git`, and the GitHub CLI (`gh`), signed in with `gh auth login`. The
+Claude Code CLI is optional, but without it you can't resume sessions or use the plugin
+interactively.
+
 ```sh
 npx openmill install
 ```
+
+This works the same on macOS, Linux, and Windows. It:
+
+1. checks the prerequisites above
+2. installs `openmill` globally with `npm install -g`, at the version you ran
+3. creates `~/.openmill`
+4. installs the openmill Claude plugin, which has the workflow skill and review agents, from a
+   local marketplace in `~/.openmill/plugin`
+5. stops a running server from an older version, so the next command starts the new one
+6. asks for `concurrency` and `model`
+
+Pass `--yes` to skip the prompts and keep the defaults. To upgrade, run
+`npx openmill@latest install`.
+
+To remove openmill, run `openmill uninstall`. It stops the server and removes the plugin and the
+global package. It keeps `~/.openmill` unless you pass `--purge`.
 
 > [!CAUTION]
 > openmill runs agents with full local permissions. Headless runs use Claude Code's
@@ -72,6 +92,35 @@ pnpm build
 | `packages/core`   | `@openmill/core`   | Design doc parsing, the dependency graph, and the task state machine |
 | `packages/db`     | `@openmill/db`     | SQLite schema and queries                                            |
 | `packages/assets` | `@openmill/assets` | The workflow skill and review subagents that workers run             |
+
+### Releasing
+
+The `openmill` package is published from `apps/cli`. The build bundles the workspace packages and
+copies the plugin files and migrations into `dist/`.
+
+To cut a release:
+
+```sh
+cd apps/cli && npm version 0.2.0 --no-git-tag-version && cd ../..
+git commit -am "chore: release 0.2.0"
+git tag v0.2.0
+git push origin main v0.2.0
+```
+
+The tag runs `.github/workflows/release.yml`, which checks that the tag matches the package
+version, runs `pnpm check`, and publishes with npm trusted publishing. No npm token is stored.
+
+The first release has to be published by hand, because npm only lets you set up a trusted
+publisher for a package that exists:
+
+```sh
+pnpm build
+pnpm --filter openmill pack
+npm publish apps/cli/openmill-0.1.0.tgz --access public
+```
+
+Then, on npmjs.com, open the package settings and add a trusted publisher. Use the GitHub
+repository `ZachMcM/openmill` and the workflow file `release.yml`.
 
 ## License
 

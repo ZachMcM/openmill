@@ -11,6 +11,7 @@ import { Mill } from "./mill.ts";
 import { resolvePaths } from "./paths.ts";
 
 export interface ServerOptions {
+  version: string;
   log?: (message: string) => void;
 }
 
@@ -19,7 +20,7 @@ export interface RunningServer {
   close(): Promise<void>;
 }
 
-export async function startServer(options: ServerOptions = {}): Promise<RunningServer> {
+export async function startServer(options: ServerOptions): Promise<RunningServer> {
   const paths = resolvePaths();
 
   await mkdir(paths.home, { recursive: true, mode: 0o700 });
@@ -59,7 +60,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RunningS
   }
 
   const server = createAdaptorServer({
-    fetch: createApp(mill, () => void close()).fetch,
+    fetch: createApp(mill, { version: options.version, onShutdown: () => void close() }).fetch,
   }) as Server;
 
   await listen(server, paths.socket);

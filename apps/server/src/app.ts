@@ -20,12 +20,17 @@ function validate<Target extends "json" | "query", T extends z.ZodType>(target: 
   });
 }
 
-export function createApp(mill: Mill, onShutdown: () => void) {
+export interface AppOptions {
+  version: string;
+  onShutdown: () => void;
+}
+
+export function createApp(mill: Mill, { version, onShutdown }: AppOptions) {
   return new Hono()
     .onError((error, c) =>
       c.json({ error: error.message }, error instanceof ApiError ? error.status : 500),
     )
-    .get("/status", (c) => c.json(mill.status()))
+    .get("/status", (c) => c.json({ ...mill.status(), version }))
     .post("/shutdown", (c) => {
       setImmediate(onShutdown);
 
