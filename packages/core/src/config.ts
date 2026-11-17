@@ -9,13 +9,27 @@ export interface Config {
   harness: HarnessName;
   model?: string;
   effort: Effort;
+  notify_desktop: boolean;
+  notify_command?: string;
 }
 
-export const CONFIG_KEYS = ["concurrency", "harness", "model", "effort"] as const;
+export const CONFIG_KEYS = [
+  "concurrency",
+  "harness",
+  "model",
+  "effort",
+  "notify_desktop",
+  "notify_command",
+] as const;
 
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
 
-export const DEFAULT_CONFIG: Config = { concurrency: 2, harness: "claude", effort: "medium" };
+export const DEFAULT_CONFIG: Config = {
+  concurrency: 2,
+  harness: "claude",
+  effort: "medium",
+  notify_desktop: true,
+};
 
 export type ParsedValue<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -54,6 +68,12 @@ export function parseConfigValue(key: ConfigKey, value: string): ParsedValue<Con
       return parseModel(value);
     case "effort":
       return parseEffort(value);
+    case "notify_desktop":
+      return value === "true" || value === "false"
+        ? { ok: true, value: value === "true" }
+        : { ok: false, error: "notify_desktop must be true or false" };
+    case "notify_command":
+      return { ok: true, value: value.trim() === "" ? undefined : value };
   }
 }
 

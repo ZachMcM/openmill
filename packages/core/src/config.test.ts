@@ -10,6 +10,9 @@ describe("config", () => {
     expect(parseConfigValue("effort", "huge").ok).toBe(false);
     expect(parseConfigValue("harness", "codex").ok).toBe(false);
     expect(parseConfigValue("model", "opus")).toEqual({ ok: true, value: "opus" });
+    expect(parseConfigValue("notify_desktop", "false")).toEqual({ ok: true, value: false });
+    expect(parseConfigValue("notify_desktop", "no").ok).toBe(false);
+    expect(parseConfigValue("notify_command", "")).toEqual({ ok: true, value: undefined });
   });
 
   it("fills defaults and drops unknown or invalid stored values", () => {

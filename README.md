@@ -54,6 +54,7 @@ openmill stop login               # abort the headless run so you can take over
 openmill requeue login            # hand the job back to the queue
 openmill config set concurrency 3
 openmill config unset model       # back to the default
+openmill config set notify_command "curl -s -d @- ntfy.sh/my-topic"  # JSON payload on stdin
 openmill server status
 ```
 

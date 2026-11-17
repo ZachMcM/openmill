@@ -1,7 +1,6 @@
 import { createWriteStream } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { pluginDir } from "@openmill/assets";
 import {
   HAND_OFF_STATES,
   REQUEUEABLE_STATES,
@@ -9,6 +8,7 @@ import {
   assertTransition,
   checkGraph,
   jobsToStart,
+  notificationFor,
   stackParent,
   waitingUpdates,
   type Config,
@@ -41,10 +41,11 @@ import { writeConfigValue } from "./config-store.ts";
 import { ApiError } from "./errors.ts";
 import { ensureWorktree, fetchDefaultBranch, gitRoot, withRepoLock } from "./git.ts";
 import type { GitHub } from "./github.ts";
-import { loadClaudeAgents } from "./harness/agents.ts";
 import { HANDBACK_MESSAGE, RESTART_MESSAGE } from "./harness/prompt.ts";
 import type { Harness, HarnessEvent, RunInput, RunResult } from "./harness/types.ts";
+import { createNotifier, notificationPayload, type Notify } from "./notify.ts";
 import { branchName, jobDir, worktreePath, type Paths } from "./paths.ts";
+import { resumeCommand } from "./resume.ts";
 
 type AbortReason = "stop" | "requeue" | "shutdown";
 
@@ -65,6 +66,7 @@ export class Mill {
   private readonly harnesses: Record<string, Harness>;
   private readonly github: GitHub;
   private readonly log: (message: string) => void;
+  private readonly notifier: Notify;
   private readonly active = new Map<number, { controller: AbortController; done: Promise<void> }>();
   private config: Config;
   private closed = false;
@@ -76,6 +78,7 @@ export class Mill {
     this.harnesses = options.harnesses;
     this.github = options.github;
     this.log = options.log ?? (() => {});
+    this.notifier = createNotifier(this.log);
   }
 
   async add(request: AddRequest): Promise<Array<{ id: string; action: AddAction }>> {
@@ -371,6 +374,7 @@ export class Mill {
 
         updateRun(this.db, run.id, { endedAt: new Date(), result: { status: "failed", reason } });
         updateJob(this.db, job.key, { state: "failed" });
+        this.notify(job.key, "running", "failed", reason);
         continue;
       }
 
@@ -519,11 +523,14 @@ export class Mill {
     const current = getJob(this.db, job.key);
 
     if (current?.state === "running") {
-      assertTransition("running", record.status as JobState);
+      const state = record.status as JobState;
+
+      assertTransition("running", state);
       updateJob(this.db, job.key, {
-        state: record.status,
-        ...(record.status === "done" ? { prUrl: record.pr_url } : {}),
+        state,
+        ...(state === "done" ? { prUrl: record.pr_url } : {}),
       });
+      this.notify(job.key, "running", state, record.reason ?? null);
     }
 
     return record;
@@ -622,6 +629,21 @@ export class Mill {
     return moved;
   }
 
+  private notify(key: number, from: JobState, to: JobState, reason: string | null): void {
+    const event = notificationFor(from, to);
+    const job = getJob(this.db, key);
+
+    if (!event || !job) {
+      return;
+    }
+
+    try {
+      this.notifier(notificationPayload(event, job, reason), this.config);
+    } catch (error) {
+      this.log(`notification for ${job.id} failed: ${String(error)}`);
+    }
+  }
+
   private logPath(job: Job, run: Run): string {
     return join(jobDir(this.paths, job.repoPath, job.id), "runs", `${run.id}.jsonl`);
   }
@@ -694,23 +716,4 @@ function summary(job: Job, run: Run | undefined): JobSummary {
     sessionId: job.sessionId,
     prUrl: job.prUrl,
   };
-}
-
-function resumeCommand(worktree: string, sessionId: string): string {
-  return [
-    "cd",
-    shellQuote(worktree),
-    "&&",
-    "claude",
-    "--resume",
-    shellQuote(sessionId),
-    "--plugin-dir",
-    shellQuote(pluginDir),
-    "--agents",
-    shellQuote(JSON.stringify(loadClaudeAgents())),
-  ].join(" ");
-}
-
-function shellQuote(value: string): string {
-  return /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`;
 }
