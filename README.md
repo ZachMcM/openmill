@@ -45,12 +45,13 @@ pnpm check   # format, lint, typecheck, and test
 pnpm build
 ```
 
-| Path            | Package            | Purpose                                                              |
-| --------------- | ------------------ | -------------------------------------------------------------------- |
-| `apps/cli`      | `openmill`         | The published CLI                                                    |
-| `apps/server`   | `@openmill/server` | The background daemon                                                |
-| `packages/core` | `@openmill/core`   | Design doc parsing, the dependency graph, and the task state machine |
-| `packages/db`   | `@openmill/db`     | SQLite schema and queries                                            |
+| Path              | Package            | Purpose                                                              |
+| ----------------- | ------------------ | -------------------------------------------------------------------- |
+| `apps/cli`        | `openmill`         | The published CLI                                                    |
+| `apps/server`     | `@openmill/server` | The background daemon                                                |
+| `packages/core`   | `@openmill/core`   | Design doc parsing, the dependency graph, and the task state machine |
+| `packages/db`     | `@openmill/db`     | SQLite schema and queries                                            |
+| `packages/assets` | `@openmill/assets` | The workflow skill and review subagents that workers run             |
 
 ## License
 
