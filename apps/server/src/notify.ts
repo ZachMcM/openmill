@@ -21,6 +21,7 @@ const BODY_LIMIT = 200;
 const EVENT_LABELS: Record<NotificationEvent, string> = {
   needs_input: "needs input",
   failed: "failed",
+  ready_for_review: "ready for review",
 };
 
 // Toasts only show for a registered AppUserModelID, so borrow the one Windows PowerShell ships with.
