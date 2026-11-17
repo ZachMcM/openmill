@@ -17,11 +17,11 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "commander": "^15.1.0"
+    "commander": "^15.1.0",
+    "hono": "^4.13.18"
   },
   "devDependencies": {
     "@openmill/core": "workspace:*",
-    "@openmill/db": "workspace:*",
     "@openmill/server": "workspace:*",
     "@types/node": "catalog:",
     "tsdown": "catalog:",

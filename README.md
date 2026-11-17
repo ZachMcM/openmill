@@ -19,9 +19,29 @@ already use.
 npx openmill install
 ```
 
+> [!CAUTION]
+> openmill runs agents with full local permissions. Headless runs use Claude Code's
+> `bypassPermissions` mode, so an agent can run any command and edit any file your user can.
+> The workflow skill only opens draft PRs and never merges, but nothing else stops it.
+
 ## Usage
 
-<!-- TODO: writing a design doc, `openmill add`, `openmill inbox`, `openmill attach` -->
+```sh
+openmill add docs/login.md        # queue a doc (and the docs it depends on)
+openmill ls                       # list jobs
+openmill show login               # worktree, session, and a resume command
+openmill stop login               # abort the headless run so you can take over
+openmill requeue login            # hand the job back to the queue
+openmill config set concurrency 3
+openmill server status
+```
+
+The first command that needs the server starts it in the background. State lives in
+`~/.openmill`, or in `OPENMILL_HOME` when it's set.
+
+To take over a job, run `openmill stop <id>`, then paste the command `openmill show <id>` prints.
+When you're done, `openmill requeue <id>` resumes the same session headlessly, or marks the job
+done if you already opened the draft PR.
 
 ## Design doc format
 
