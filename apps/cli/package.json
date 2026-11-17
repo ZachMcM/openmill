@@ -4,7 +4,7 @@
   "description": "A local software factory that turns design docs into pull requests.",
   "license": "MIT",
   "bin": {
-    "openmill": "./dist/main.mjs"
+    "openmill": "./dist/index.mjs"
   },
   "files": [
     "dist"
@@ -12,7 +12,7 @@
   "type": "module",
   "scripts": {
     "build": "tsdown",
-    "dev": "node --watch src/main.ts",
+    "dev": "node --watch src/index.ts",
     "typecheck": "tsc",
     "test": "vitest run --passWithNoTests"
   },

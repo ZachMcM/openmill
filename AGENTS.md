@@ -13,7 +13,7 @@ Use pnpm for everything. Never use npm or yarn, and never edit `pnpm-lock.yaml` 
 - `pnpm build`, `pnpm typecheck`, and `pnpm test` run through Turbo across all packages. To target one package, use `pnpm --filter <name> <script>`, for example `pnpm --filter @openmill/core test`.
 - Add dependencies with `pnpm --filter <name> add <dep>`. Put shared tool versions in the `catalog` in `pnpm-workspace.yaml` and reference them as `catalog:`. Workspace packages depend on each other with `workspace:*`.
 - After changing `packages/db/src/schema.ts`, run `pnpm --filter @openmill/db db:generate` and commit the generated migration. Never edit files under `packages/db/drizzle/`.
-- Run the CLI from source with `node apps/cli/src/main.ts <command>`. Set `OPENMILL_HOME` to a temp directory so you don't touch `~/.openmill`.
+- Run the CLI from source with `node apps/cli/src/index.ts <command>`. Set `OPENMILL_HOME` to a temp directory so you don't touch `~/.openmill`.
 - Turbo caches task results. If a result looks stale, rerun with `--force`, and don't delete `.turbo` directories to work around it.
 
 ## Boundaries
