@@ -115,8 +115,9 @@ publisher for a package that exists:
 
 ```sh
 pnpm build
-pnpm --filter openmill pack
-npm publish apps/cli/openmill-0.1.0.tgz --access public
+cd apps/cli
+pnpm pack
+npm publish openmill-0.1.0.tgz --access public
 ```
 
 Then, on npmjs.com, open the package settings and add a trusted publisher. Use the GitHub
