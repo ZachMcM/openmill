@@ -16,6 +16,12 @@ export interface NotificationPayload {
 export type Notify = (payload: NotificationPayload, config: Config) => void;
 
 const COMMAND_TIMEOUT_MS = 10_000;
+const BODY_LIMIT = 200;
+
+const EVENT_LABELS: Record<NotificationEvent, string> = {
+  needs_input: "needs input",
+  failed: "failed",
+};
 
 // Toasts only show for a registered AppUserModelID, so borrow the one Windows PowerShell ships with.
 const WINDOWS_TOAST_SCRIPT = [
@@ -48,10 +54,10 @@ export function createNotifier(log: (message: string) => void): Notify {
   let desktopMissing = false;
 
   function desktop(payload: NotificationPayload): void {
-    const title = `openmill: ${payload.job} ${payload.event}`;
-    const firstLine = payload.reason?.split(/\r?\n/, 1)[0]?.trim();
-    const show = `openmill show ${payload.job}`;
-    const body = firstLine ? `${firstLine}\n${show}` : show;
+    const title = `openmill: ${payload.job} ${EVENT_LABELS[payload.event]}`;
+    const reason = payload.reason?.replace(/\s+/g, " ").trim() ?? "";
+    const body =
+      reason.length > BODY_LIMIT ? `${reason.slice(0, BODY_LIMIT - 1).trimEnd()}…` : reason;
     const { command, args, env } = desktopCommand(title, body);
 
     execFile(command, args, { env: { ...process.env, ...env } }, (error) => {
