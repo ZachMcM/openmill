@@ -12,6 +12,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@openmill/core": "workspace:*",
     "@openmill/db": "workspace:*"
   },
   "devDependencies": {

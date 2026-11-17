@@ -209,6 +209,9 @@ importers:
         specifier: ^15.1.0
         version: 15.1.0
     devDependencies:
+      '@openmill/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@openmill/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -230,9 +233,24 @@ importers:
 
   apps/server:
     dependencies:
+      '@openmill/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@openmill/db':
         specifier: workspace:*
         version: link:../../packages/db
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.6
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 5.1.0(@types/node@26.6.6)(vite@8.3.8(@types/node@26.6.6))
+
+  packages/core:
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
