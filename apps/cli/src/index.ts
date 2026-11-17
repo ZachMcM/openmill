@@ -15,7 +15,7 @@ import pc from "picocolors";
 import { connect, isRunning, localClient, stopServer } from "./connect.ts";
 import { collectDocs } from "./docs.ts";
 import { install, uninstall } from "./install.ts";
-import { table, unwrap } from "./output.ts";
+import { fitLastColumn, table, unwrap } from "./output.ts";
 import { command, fail, spin, state, warn } from "./ui.ts";
 
 function option<T>(parse: (value: string) => ParsedValue<T>) {
@@ -93,17 +93,21 @@ program
   .description("list jobs")
   .action(async () => {
     const { jobs } = await unwrap((await connect()).jobs.$get());
+    const header = ["ID", "STATE", "SESSION", "PR", "REASON"];
 
     console.log(
       table(
-        ["ID", "STATE", "REASON", "SESSION", "PR"],
-        jobs.map((job) => [
-          pc.bold(job.id),
-          state(job.state),
-          job.reason ?? "",
-          pc.dim(job.sessionId ?? ""),
-          job.prUrl ?? "",
-        ]),
+        header,
+        fitLastColumn(
+          header,
+          jobs.map((job) => [
+            pc.bold(job.id),
+            state(job.state),
+            pc.dim(job.sessionId ?? ""),
+            job.prUrl ?? "",
+            job.reason ?? "",
+          ]),
+        ),
       ),
     );
   });
