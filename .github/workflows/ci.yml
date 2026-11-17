@@ -32,3 +32,14 @@ jobs:
       - run: pnpm check
 
       - run: pnpm build
+
+      - name: Smoke test the packed CLI
+        shell: bash
+        run: |
+          pnpm --filter openmill pack --pack-destination "$RUNNER_TEMP"
+          npm install -g "$RUNNER_TEMP"/openmill-*.tgz
+          export OPENMILL_HOME="$RUNNER_TEMP/openmill-home"
+          openmill --version
+          openmill ls
+          openmill server status
+          openmill server stop
