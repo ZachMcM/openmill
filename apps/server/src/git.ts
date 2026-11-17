@@ -62,3 +62,13 @@ export async function ensureWorktree(
     await exec("git", ["worktree", "add", "--no-track", path, "-b", branch, start], repo);
   }
 }
+
+export async function removeWorktree(repo: string, path: string, branch: string): Promise<void> {
+  if (existsSync(path)) {
+    await exec("git", ["worktree", "remove", "--force", path], repo);
+  }
+
+  if (await branchExists(repo, branch)) {
+    await exec("git", ["branch", "-D", branch], repo);
+  }
+}

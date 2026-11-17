@@ -6,7 +6,9 @@ export function exec(command: string, args: string[], cwd: string): Promise<stri
       if (error) {
         const detail = stderr.trim() || error.message;
 
-        reject(new Error(`${command} ${args.join(" ")} failed: ${detail}`));
+        reject(
+          Object.assign(new Error(`${command} ${args.join(" ")} failed: ${detail}`), { detail }),
+        );
       } else {
         resolve(stdout);
       }

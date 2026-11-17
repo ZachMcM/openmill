@@ -1,6 +1,16 @@
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { Db } from "./client.ts";
-import { jobDependencies, jobs, runs, type Job, type NewJob, type Run } from "./schema.ts";
+import {
+  jobDependencies,
+  jobs,
+  prObservations,
+  runs,
+  type Job,
+  type NewJob,
+  type NewPrObservationRow,
+  type PrObservationRow,
+  type Run,
+} from "./schema.ts";
 
 export type Queryable = Pick<Db, "select" | "insert" | "update" | "delete">;
 
@@ -90,4 +100,23 @@ export function latestRuns(db: Queryable, jobKeys: number[]): Map<number, Run> {
 
 export function unfinishedRuns(db: Queryable): Run[] {
   return db.select().from(runs).where(isNull(runs.endedAt)).orderBy(asc(runs.id)).all();
+}
+
+export function getObservation(db: Queryable, jobKey: number): PrObservationRow | undefined {
+  return db.select().from(prObservations).where(eq(prObservations.jobKey, jobKey)).get();
+}
+
+export function saveObservation(db: Queryable, row: NewPrObservationRow): void {
+  db.insert(prObservations)
+    .values(row)
+    .onConflictDoUpdate({ target: prObservations.jobKey, set: row })
+    .run();
+}
+
+export function updateObservation(
+  db: Queryable,
+  jobKey: number,
+  patch: Partial<NewPrObservationRow>,
+): void {
+  db.update(prObservations).set(patch).where(eq(prObservations.jobKey, jobKey)).run();
 }

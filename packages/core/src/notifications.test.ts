@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { notificationFor } from "./notifications.ts";
+import { notificationFor, prNotificationFor } from "./notifications.ts";
+import type { PrObservation } from "./observation.ts";
 
 describe("notificationFor", () => {
   it("notifies when a run hands the job to a human", () => {
@@ -13,5 +14,35 @@ describe("notificationFor", () => {
     expect(notificationFor("running", "done")).toBeNull();
     expect(notificationFor("needs_input", "queued")).toBeNull();
     expect(notificationFor("failed", "failed")).toBeNull();
+  });
+});
+
+describe("prNotificationFor", () => {
+  const observation: PrObservation = {
+    state: "OPEN",
+    headSha: "a1",
+    checks: {
+      state: "SUCCESS",
+      checks: [
+        { name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
+        { name: "lint", status: "COMPLETED", conclusion: "SKIPPED" },
+      ],
+    },
+    unresolvedThreads: [],
+    latestReviewId: null,
+  };
+  const failing = {
+    ...observation,
+    checks: {
+      state: "FAILURE",
+      checks: [{ name: "test", status: "COMPLETED", conclusion: "FAILURE" }],
+    },
+  };
+
+  it("says a done job is ready for review when every check passed", () => {
+    expect(prNotificationFor("done", "checks_finished", observation)).toBe("ready_for_review");
+    expect(prNotificationFor("done", "checks_finished", failing)).toBeNull();
+    expect(prNotificationFor("paused", "checks_finished", observation)).toBeNull();
+    expect(prNotificationFor("done", "head_moved", observation)).toBeNull();
   });
 });

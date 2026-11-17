@@ -11,6 +11,8 @@ export interface Config {
   effort: Effort;
   notify_desktop: boolean;
   notify_command?: string;
+  watch_interval: number;
+  trusted_bots: string[];
 }
 
 export const CONFIG_KEYS = [
@@ -20,6 +22,8 @@ export const CONFIG_KEYS = [
   "effort",
   "notify_desktop",
   "notify_command",
+  "watch_interval",
+  "trusted_bots",
 ] as const;
 
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
@@ -29,7 +33,11 @@ export const DEFAULT_CONFIG: Config = {
   harness: "claude",
   effort: "medium",
   notify_desktop: true,
+  watch_interval: 120,
+  trusted_bots: [],
 };
+
+const MIN_WATCH_INTERVAL = 30;
 
 export type ParsedValue<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -74,6 +82,24 @@ export function parseConfigValue(key: ConfigKey, value: string): ParsedValue<Con
         : { ok: false, error: "notify_desktop must be true or false" };
     case "notify_command":
       return { ok: true, value: value.trim() === "" ? undefined : value };
+    case "watch_interval": {
+      const number = Number(value);
+
+      return Number.isInteger(number) && number >= MIN_WATCH_INTERVAL
+        ? { ok: true, value: number }
+        : {
+            ok: false,
+            error: `watch_interval must be an integer of at least ${MIN_WATCH_INTERVAL}`,
+          };
+    }
+    case "trusted_bots":
+      return {
+        ok: true,
+        value: value
+          .split(",")
+          .map((login) => login.trim())
+          .filter((login) => login !== ""),
+      };
   }
 }
 

@@ -72,6 +72,25 @@ export const runs = sqliteTable(
   (table) => [index("runs_job").on(table.jobKey)],
 );
 
+export const prObservations = sqliteTable("pr_observations", {
+  jobKey: integer()
+    .primaryKey()
+    .references(() => jobs.key, { onDelete: "cascade" }),
+  prUrl: text().notNull(),
+  polledAt: integer({ mode: "timestamp_ms" }).notNull(),
+  state: text().notNull(),
+  headSha: text().notNull(),
+  checks: text({ mode: "json" }).notNull().$type<ChecksRecord>(),
+  unresolvedThreads: text({ mode: "json" }).notNull().$type<string[]>(),
+  latestReviewId: text(),
+  readyNotifiedSha: text(),
+});
+
+export interface ChecksRecord {
+  state: string | null;
+  checks: Array<{ name: string; status: string; conclusion: string | null }>;
+}
+
 export interface RunResultRecord {
   status: "done" | "needs_input" | "failed" | "stopped" | "interrupted";
   pr_url?: string;
@@ -81,3 +100,5 @@ export interface RunResultRecord {
 export type Job = typeof jobs.$inferSelect;
 export type NewJob = typeof jobs.$inferInsert;
 export type Run = typeof runs.$inferSelect;
+export type PrObservationRow = typeof prObservations.$inferSelect;
+export type NewPrObservationRow = typeof prObservations.$inferInsert;

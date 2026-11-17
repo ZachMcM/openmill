@@ -55,6 +55,7 @@ openmill requeue login            # hand the job back to the queue
 openmill config set concurrency 3
 openmill config unset model       # back to the default
 openmill config set notify_command "curl -s -d @- ntfy.sh/my-topic"  # JSON payload on stdin
+openmill config set trusted_bots "coderabbitai[bot],copilot-pull-request-reviewer[bot]"
 openmill server status
 ```
 
@@ -64,6 +65,12 @@ The first command that needs the server starts it in the background. State lives
 To take over a job, run `openmill stop <id>`, then paste the command `openmill show <id>` prints.
 When you're done, `openmill requeue <id>` resumes the same session headlessly, or marks the job
 done if you already opened the draft PR.
+
+Once a job has a draft PR, the server polls GitHub every `watch_interval` seconds (120 by
+default). It notifies you when the PR's checks all pass, and moves the job to `merged` or `closed`
+when the PR does. Merging removes the job's worktree and local branch. Reviews and threads only
+count when they come from the repo's owners, members, or collaborators, or from a login in
+`trusted_bots`. Set `OPENMILL_DEBUG=1` before the server starts to log the ones it ignores.
 
 ## Design doc format
 

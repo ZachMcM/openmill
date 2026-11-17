@@ -5,22 +5,29 @@ import {
   HAND_OFF_STATES,
   REQUEUEABLE_STATES,
   UPDATABLE_STATES,
+  WATCHED_STATES,
   assertTransition,
+  canTransition,
   checkGraph,
   jobsToStart,
   notificationFor,
+  prNotificationFor,
   stackParent,
   waitingUpdates,
   type Config,
   type ConfigKey,
   type Effort,
   type JobState,
+  type NotificationEvent,
+  type PrEvent,
+  type PrObservation,
   type SchedulableJob,
 } from "@openmill/core";
 import {
   findJob,
   findJobsById,
   getJob,
+  getObservation,
   insertJob,
   insertRun,
   latestRun,
@@ -30,6 +37,7 @@ import {
   setDependencies,
   unfinishedRuns,
   updateJob,
+  updateObservation,
   updateRun,
   type Db,
   type Job,
@@ -39,13 +47,20 @@ import {
 import type { AddAction, AddRequest, JobDetail, JobSummary } from "./api.ts";
 import { writeConfigValue } from "./config-store.ts";
 import { ApiError } from "./errors.ts";
-import { ensureWorktree, fetchDefaultBranch, gitRoot, withRepoLock } from "./git.ts";
+import {
+  ensureWorktree,
+  fetchDefaultBranch,
+  gitRoot,
+  removeWorktree,
+  withRepoLock,
+} from "./git.ts";
 import type { GitHub } from "./github.ts";
 import { HANDBACK_MESSAGE, RESTART_MESSAGE } from "./harness/prompt.ts";
 import type { Harness, HarnessEvent, RunInput, RunResult } from "./harness/types.ts";
 import { createNotifier, notificationPayload, type Notify } from "./notify.ts";
 import { branchName, jobDir, worktreePath, type Paths } from "./paths.ts";
 import { resumeCommand } from "./resume.ts";
+import { PrWatcher } from "./watcher.ts";
 
 type AbortReason = "stop" | "requeue" | "shutdown";
 
@@ -58,7 +73,14 @@ export interface MillOptions {
   harnesses: Record<string, Harness>;
   github: GitHub;
   log?: (message: string) => void;
+  debug?: (message: string) => void;
 }
+
+const PR_STATE_EVENTS: ReadonlyArray<[PrEvent, JobState]> = [
+  ["merged", "merged"],
+  ["closed", "closed"],
+  ["reopened", "done"],
+];
 
 export class Mill {
   private readonly db: Db;
@@ -67,6 +89,7 @@ export class Mill {
   private readonly github: GitHub;
   private readonly log: (message: string) => void;
   private readonly notifier: Notify;
+  private readonly watcher: PrWatcher;
   private readonly active = new Map<number, { controller: AbortController; done: Promise<void> }>();
   private config: Config;
   private closed = false;
@@ -79,6 +102,14 @@ export class Mill {
     this.github = options.github;
     this.log = options.log ?? (() => {});
     this.notifier = createNotifier(this.log);
+    this.watcher = new PrWatcher({
+      db: this.db,
+      github: this.github,
+      config: () => this.config,
+      onChange: (job, events, observation) => this.applyPrEvents(job, events, observation),
+      log: this.log,
+      debug: options.debug ?? (() => {}),
+    });
   }
 
   async add(request: AddRequest): Promise<Array<{ id: string; action: AddAction }>> {
@@ -295,6 +326,11 @@ export class Mill {
 
   async setConfig(key: ConfigKey, value: Config[ConfigKey]): Promise<Config> {
     this.config = await writeConfigValue(this.paths.config, key, value);
+
+    if (key === "watch_interval") {
+      this.watcher.restart();
+    }
+
     this.schedule();
 
     return this.config;
@@ -333,13 +369,14 @@ export class Mill {
             id: job.id,
             state: this.active.has(job.key) ? "running" : (job.state as JobState),
             blockedReason: job.blockedReason,
+            prUrl: job.prUrl,
           },
         ]),
       );
 
       for (const [id, update] of waitingUpdates(graph, states)) {
         updateJob(this.db, (byId.get(id) as Job).key, update);
-        states.set(id, { id, ...update });
+        states.set(id, { ...(states.get(id) as SchedulableJob), ...update });
       }
 
       for (const id of jobsToStart(graph, states, Math.max(0, slots))) {
@@ -356,6 +393,8 @@ export class Mill {
           : { kind: "start" },
       );
     }
+
+    this.watcher.wake();
   }
 
   recover(): void {
@@ -387,10 +426,12 @@ export class Mill {
     }
 
     this.schedule();
+    this.watcher.poll();
   }
 
   async close(): Promise<void> {
     this.closed = true;
+    await this.watcher.close();
 
     const runs = [...this.active.values()];
 
@@ -579,11 +620,19 @@ export class Mill {
 
   private async branchBase(job: Job): Promise<{ baseBranch: string; prBaseBranch: string }> {
     const graph = this.repoGraph(job.repoPath);
-    const parentId = stackParent(graph, job.id);
+    const parentOf = (id: string) => {
+      const parentId = stackParent(graph, id);
 
-    if (parentId) {
-      const parent = findJob(this.db, job.repoPath, parentId) as Job;
+      return parentId ? findJob(this.db, job.repoPath, parentId) : undefined;
+    };
+    let parent = parentOf(job.id);
 
+    // A merged parent's branch is deleted, so stack on the nearest ancestor that still has one.
+    while (parent?.state === "merged") {
+      parent = parentOf(parent.id);
+    }
+
+    if (parent) {
       return { baseBranch: parent.branchName, prBaseBranch: parent.branchName };
     }
 
@@ -629,11 +678,59 @@ export class Mill {
     return moved;
   }
 
+  private applyPrEvents(job: Job, events: PrEvent[], observation: PrObservation): void {
+    this.log(`${job.id} PR events: ${events.join(", ")}`);
+
+    if (!WATCHED_STATES.includes(job.state as JobState)) {
+      return;
+    }
+
+    let state = job.state as JobState;
+    const next = PR_STATE_EVENTS.find(([event]) => events.includes(event))?.[1];
+
+    if (next && canTransition(state, next)) {
+      updateJob(this.db, job.key, { state: next });
+      state = next;
+
+      if (next === "merged") {
+        void this.cleanUpMerged(job);
+      }
+    }
+
+    const ready = events.some(
+      (event) => prNotificationFor(state, event, observation) === "ready_for_review",
+    );
+
+    if (ready && getObservation(this.db, job.key)?.readyNotifiedSha !== observation.headSha) {
+      updateObservation(this.db, job.key, { readyNotifiedSha: observation.headSha });
+      this.send("ready_for_review", job.key, "every check passed");
+    }
+
+    this.schedule();
+  }
+
+  private async cleanUpMerged(job: Job): Promise<void> {
+    try {
+      await withRepoLock(job.repoPath, () =>
+        removeWorktree(job.repoPath, job.worktreePath, job.branchName),
+      );
+    } catch (error) {
+      this.log(`cleaning up merged job ${job.id} failed: ${String(error)}`);
+    }
+  }
+
   private notify(key: number, from: JobState, to: JobState, reason: string | null): void {
     const event = notificationFor(from, to);
+
+    if (event) {
+      this.send(event, key, reason);
+    }
+  }
+
+  private send(event: NotificationEvent, key: number, reason: string | null): void {
     const job = getJob(this.db, key);
 
-    if (!event || !job) {
+    if (!job) {
       return;
     }
 
@@ -697,7 +794,7 @@ function planAction(
     return "updated";
   }
 
-  if (force && job.state !== "cancelled") {
+  if (force && canTransition(job.state as JobState, "queued")) {
     return "requeued";
   }
 
