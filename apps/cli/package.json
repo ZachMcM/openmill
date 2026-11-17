@@ -1,6 +1,6 @@
 {
   "name": "openmill",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "A local software factory that turns design docs into pull requests.",
   "keywords": [
     "agents",
