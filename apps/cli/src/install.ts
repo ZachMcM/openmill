@@ -98,12 +98,15 @@ async function installGlobal(): Promise<string | undefined> {
   return pkg.version;
 }
 
-async function stopRunningServer(options: InstallOptions): Promise<string | undefined> {
+async function stopRunningServer(options: InstallOptions): Promise<void> {
+  const title = "Stopping the old server";
   const client = localClient();
   const status = await serverStatus(client);
 
   if (!status) {
-    return "not running";
+    await step(title, async () => "not running");
+
+    return;
   }
 
   if ((status.running ?? 0) > 0) {
@@ -121,13 +124,15 @@ async function stopRunningServer(options: InstallOptions): Promise<string | unde
         `Left the server running. Run ${pc.bold("openmill server stop")} once its jobs finish.`,
       );
 
-      return undefined;
+      return;
     }
   }
 
-  await stopServer(client);
+  await step(title, async () => {
+    await stopServer(client);
 
-  return "stopped";
+    return "stopped";
+  });
 }
 
 const MODELS = [
@@ -231,7 +236,7 @@ export async function install(options: InstallOptions): Promise<void> {
       });
     }
 
-    await step("Stopping the old server", () => stopRunningServer(options));
+    await stopRunningServer(options);
 
     if (interactive(options)) {
       await promptConfig(paths.config);
