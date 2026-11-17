@@ -1,8 +1,10 @@
 import { startServer } from "./index.ts";
 
-const server = startServer({ dbPath: process.env.OPENMILL_DB ?? "openmill.db" });
+const server = await startServer({ log: (message) => console.error(message) });
 
-process.on("SIGINT", () => {
-  server.close();
-  process.exit(0);
-});
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => void server.close());
+}
+
+await server.closed;
+process.exit(0);
