@@ -31,7 +31,7 @@ This works the same on macOS, Linux, and Windows. It:
 4. installs the openmill Claude plugin, which has the workflow skill and review agents, from a
    local marketplace in `~/.openmill/plugin`
 5. stops a running server from an older version, so the next command starts the new one
-6. asks for `concurrency` and `model`
+6. asks for `concurrency`, `model`, and `effort`
 
 Pass `--yes` to skip the prompts and keep the defaults. To upgrade, run
 `npx openmill@latest install`.

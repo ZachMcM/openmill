@@ -2,7 +2,7 @@ import { realpathSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import * as p from "@clack/prompts";
-import { parseConfigValue, type ConfigKey } from "@openmill/core";
+import { EFFORTS, parseConfigValue } from "@openmill/core";
 import { readConfig, resolvePaths, writeConfigValue } from "@openmill/server";
 import pc from "picocolors";
 import pkg from "../package.json" with { type: "json" };
@@ -130,32 +130,79 @@ async function stopRunningServer(options: InstallOptions): Promise<string | unde
   return "stopped";
 }
 
-const CONFIG_PROMPTS: Array<{ key: ConfigKey; message: string }> = [
-  { key: "concurrency", message: "How many jobs can run at once?" },
-  { key: "model", message: "Which model should agents use? Leave empty for the harness default." },
+const MODELS = [
+  { value: "claude-opus-5-5", label: "Opus 5.5" },
+  { value: "claude-sonnet-5-5", label: "Sonnet 5.5" },
+  { value: "claude-haiku-5-5", label: "Haiku 5.5" },
+  { value: "claude-fable-5-2", label: "Fable 5.2" },
 ];
+
+const DEFAULT_MODEL = "";
+const OTHER_MODEL = "other";
 
 async function promptConfig(path: string): Promise<void> {
   const current = await readConfig(path);
 
-  for (const { key, message } of CONFIG_PROMPTS) {
-    const value = answer(
+  const concurrency = parseConfigValue(
+    "concurrency",
+    answer(
       await p.text({
-        message,
-        initialValue: String(current[key] ?? ""),
+        message: "How many jobs can run at once?",
+        initialValue: String(current.concurrency),
         validate: (input = "") => {
-          const parsed = parseConfigValue(key, input);
+          const parsed = parseConfigValue("concurrency", input);
 
-          return input.trim() === "" || parsed.ok ? undefined : parsed.error;
+          return parsed.ok ? undefined : parsed.error;
+        },
+      }),
+    ),
+  );
+
+  if (concurrency.ok) {
+    await writeConfigValue(path, "concurrency", concurrency.value);
+  }
+
+  const custom =
+    current.model && !MODELS.some((model) => model.value === current.model)
+      ? [{ value: current.model, label: current.model }]
+      : [];
+  let model = answer(
+    await p.select({
+      message: "Which model should agents use?",
+      options: [
+        { value: DEFAULT_MODEL, label: "Harness default" },
+        ...custom,
+        ...MODELS,
+        { value: OTHER_MODEL, label: "Other", hint: "type a model id" },
+      ],
+      initialValue: current.model ?? DEFAULT_MODEL,
+    }),
+  );
+
+  if (model === OTHER_MODEL) {
+    model = answer(
+      await p.text({
+        message: "Model id",
+        validate: (input = "") => {
+          const parsed = parseConfigValue("model", input);
+
+          return parsed.ok ? undefined : parsed.error;
         },
       }),
     ).trim();
-    const parsed = parseConfigValue(key, value);
-
-    if (value !== "" && parsed.ok) {
-      await writeConfigValue(path, key, parsed.value);
-    }
   }
+
+  await writeConfigValue(path, "model", model === DEFAULT_MODEL ? undefined : model);
+
+  const effort = answer(
+    await p.select({
+      message: "How much effort should agents spend?",
+      options: EFFORTS.map((value) => ({ value })),
+      initialValue: current.effort,
+    }),
+  );
+
+  await writeConfigValue(path, "effort", effort);
 }
 
 export async function install(options: InstallOptions): Promise<void> {
