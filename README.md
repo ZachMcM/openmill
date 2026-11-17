@@ -53,6 +53,7 @@ openmill show login               # worktree, session, and a resume command
 openmill stop login               # abort the headless run so you can take over
 openmill requeue login            # hand the job back to the queue
 openmill config set concurrency 3
+openmill config unset model       # back to the default
 openmill server status
 ```
 

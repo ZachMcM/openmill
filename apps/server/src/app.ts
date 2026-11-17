@@ -71,6 +71,15 @@ export function createApp(mill: Mill, { version, onShutdown }: AppOptions) {
       }
 
       return c.json({ config: await mill.setConfig(key, parsed.value) });
+    })
+    .delete("/config/:key", async (c) => {
+      const key = c.req.param("key");
+
+      if (!isConfigKey(key)) {
+        throw new ApiError(400, `unknown config key ${key}`);
+      }
+
+      return c.json({ config: await mill.setConfig(key, undefined) });
     });
 }
 

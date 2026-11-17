@@ -188,6 +188,14 @@ config
     await unwrap((await connect()).config[":key"].$put({ param: { key }, json: { value } }));
   });
 
+config
+  .command("unset")
+  .description("remove a value so the default applies")
+  .argument("<key>", CONFIG_KEYS.join(", "))
+  .action(async (key: string) => {
+    await unwrap((await connect()).config[":key"].$delete({ param: { key } }));
+  });
+
 config.command("list").action(async () => {
   const { config: values } = await unwrap((await connect()).config.$get());
 
