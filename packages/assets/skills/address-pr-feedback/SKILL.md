@@ -1,6 +1,6 @@
 ---
 name: address-pr-feedback
-description: Fix what a pull request's unresolved review threads and failing checks ask for, review the fixes with verifier and code-simplifier agents, commit them, and push and reply once approved.
+description: Fix what a pull request's unresolved review threads and failing checks ask for, have correctness and simplicity verifiers confirm the fixes, commit them, and push and reply once approved.
 disable-model-invocation: true
 ---
 
@@ -26,19 +26,19 @@ When a check fails for a reason the PR didn't cause, such as a flaky test or a b
 
 Run the repository's required checks and any focused checks that cover the fixes.
 
-Before every commit, run both independent reviews on the same diff:
+Before every commit, have two independent reviewers check the same diff. Give each one the diff, the threads, the check failures, the design doc if there is one, and the acceptance criteria, along with any evidence you have. Each reports `CONFIRMED`, `REFUTED`, or `INCONCLUSIVE` with concrete findings.
 
-- Have a `verifier` agent independently check the fixes against the threads, the check failures, the design doc if there is one, and the acceptance criteria. Give it the relevant diff and evidence, and ask it to report `CONFIRMED`, `REFUTED`, or `INCONCLUSIVE` with concrete findings.
-- Have a `code-simplifier` agent inspect the changed code for unnecessary complexity and safe simplifications.
+- A `verify-correctness` agent checks the fixes for bugs: behavior that misses the acceptance criteria or breaks something that worked before.
+- A `verify-simplicity` agent checks the changed code for complexity the change doesn't need, slop, and anti-patterns.
 
 Then act on the results:
 
-- If the verifier reports `REFUTED` and fixing its valid findings changes logic, make the fixes, run the repository checks, and repeat both reviews on the updated diff.
-- If the verifier reports `REFUTED` but the valid findings need no logic change, such as missing evidence or a misread request, address them and rerun only the verifier.
-- If the verifier reports `INCONCLUSIVE`, gather the missing evidence and rerun only the verifier.
-- Once the verifier reports `CONFIRMED`, apply the useful simplifier suggestions and run the repository checks. Do not rerun either review for simplifier edits. Skip any suggestion that would change behavior. If the checks fail after a simplifier edit, revert that edit instead of reworking it.
+- If a reviewer reports `REFUTED` and fixing its valid findings changes code, make the fixes, run the repository checks, and rerun both reviewers on the updated diff. A simplicity fix can break behavior, and a correctness fix can add complexity, so any code change goes back through both.
+- If a reviewer reports `REFUTED` but its valid findings need no code change, such as missing evidence or a misread request, address them and rerun only that reviewer.
+- If a reviewer reports `INCONCLUSIVE`, gather the missing evidence and rerun only that reviewer.
+- If you think a finding is wrong, don't skip it. Give the reviewer your reasoning and evidence in the recheck. If the same finding comes back twice after that, stop and ask the user.
 
-Do not commit while the latest verifier result is `REFUTED` or `INCONCLUSIVE`. If either agent role is unavailable, do not claim its review happened. Use an available mechanism to obtain that review. If none exists, stop before committing and tell the user which required review is unavailable.
+Commit only when the latest result from both reviewers is `CONFIRMED` for the exact diff you're committing. If either agent role is unavailable, do not claim its review happened. Use an available mechanism to obtain that review. If none exists, stop before committing and tell the user which required review is unavailable.
 
 Add new commits with the repository's commit conventions. Never amend, rebase, or force-push.
 

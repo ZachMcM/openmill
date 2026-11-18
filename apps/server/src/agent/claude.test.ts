@@ -48,7 +48,7 @@ describe("claudeAgent.launch", () => {
 
   it("passes the review agents and per-run hooks that call openmill hook", () => {
     expect(Object.keys(JSON.parse(flag(command, "--agents") ?? "{}"))).toEqual(
-      expect.arrayContaining(["verifier", "code-simplifier"]),
+      expect.arrayContaining(["verify-correctness", "verify-simplicity"]),
     );
 
     const hooks = settingsHooks(command);

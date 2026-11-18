@@ -58,7 +58,7 @@ export function restackPrompt(input: RunInput, base: string, cut: string, push: 
   const facts = bullets([
     inWorktree(input.branch),
     `Run \`git rebase --onto origin/${base} ${cut}\` and resolve its conflicts, keeping what each commit on this branch meant to change.`,
-    `Before you continue the rebase past a conflict, have a \`verifier\` agent and a \`code-simplifier\` agent review your resolution, as the ${FOLLOWUP_SKILL} skill describes, and run the repository's checks.`,
+    `Before you continue the rebase past a conflict, have a \`verify-correctness\` agent and a \`verify-simplicity\` agent confirm your resolution, as the ${FOLLOWUP_SKILL} skill describes, and run the repository's checks.`,
     push
       ? `Push mode: when the rebase is done, push with \`git push --force-with-lease origin ${input.branch}\` and stop.`
       : "Push mode: finish the rebase but don't push, then stop and say the changes are ready for review.",
