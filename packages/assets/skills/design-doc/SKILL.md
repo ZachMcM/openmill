@@ -1,6 +1,6 @@
 ---
 name: design-doc
-description: Write a settled plan as an openmill design doc in .design-docs/, with id and depends_on frontmatter, ready for openmill add or a by-hand build. Use after a plan is agreed, for example at the end of /grill-me.
+description: Write a settled plan as an openmill design doc, saved where the user says, with id and depends_on frontmatter, ready for openmill add or a by-hand build. Use after a plan is agreed, for example at the end of /grill-me.
 ---
 
 # Design doc
@@ -10,8 +10,9 @@ Turn a plan that's already settled into a design doc that openmill, or a person 
 ## Before you write
 
 1. Collect the decisions. They usually come from the conversation, often from a finished `/grill-me` session. If a decision that changes the implementation is still open, ask the user, or suggest running `/grill-me` first. Don't write a guess into the doc.
-2. Read the repository's guidance, such as `AGENTS.md`, and the existing docs in `.design-docs/` if there are any. Match their structure and voice.
-3. Look up the facts the doc names, such as file paths, interfaces, commands, and config keys, in the codebase. A doc that names a file that doesn't exist sends the builder looking for it.
+2. Get the location from the user. See "Where it goes" below.
+3. Read the repository's guidance, such as `AGENTS.md`, and any existing design docs in the folder the user chose. Match their structure and voice.
+4. Look up the facts the doc names, such as file paths, interfaces, commands, and config keys, in the codebase. A doc that names a file that doesn't exist sends the builder looking for it.
 
 ## Size
 
@@ -19,7 +20,13 @@ One doc is one draft PR. If the plan won't fit in one reviewable PR, split it in
 
 ## Where it goes
 
-Write the doc to `.design-docs/<id>.md` at the repository root, and create the folder if it's missing. Don't commit the doc. If `.design-docs/` isn't gitignored, tell the user, and don't change `.gitignore` yourself.
+Save the doc only where the user tells you. If they haven't said, ask before you write anything, and don't suggest or fall back to a default folder, even one the repository already uses.
+
+- If they give a folder, name the file `<id>.md` inside it, and create the folder if it's missing.
+- If they give a file path, use it as given.
+- For a chain of docs, confirm that they all go in the same folder, unless the user said otherwise.
+
+Don't commit the doc unless the user asks.
 
 ## Frontmatter
 
@@ -31,7 +38,7 @@ project: ../auth
 ---
 ```
 
-- `id` is required. It names the job, its branch, and its worktree, so use lowercase letters, digits, and `-`, and keep it short. It must not end in `.lock`. It must be unique among the docs in `.design-docs/`, and the file name is the id.
+- `id` is required. It names the job, its branch, and its worktree, so use lowercase letters, digits, and `-`, and keep it short. It must not end in `.lock`. It must be unique among the repository's design docs, since openmill keys jobs by id per repo.
 - `project` is optional. It's a folder, relative to the doc, with a `README.md` or `index.md` of background shared across several docs. Add it only when the user has such a folder.
 
 ### depends_on
@@ -61,4 +68,4 @@ Write each decision once, as a decision. Don't list the alternatives you rejecte
 
 ## After you write
 
-Tell the user the path to each doc, then the command that builds them. For openmill, queue a chain in one batch, as in `openmill add .design-docs/sessions.md .design-docs/login.md`. To build one by hand, they run `/openmill:autonomous-feature-pr .design-docs/<id>.md`.
+Tell the user the path to each doc, then the command that builds them. For openmill, queue a chain in one batch, as in `openmill add <folder>/sessions.md <folder>/login.md`. To build one by hand, they run `/openmill:autonomous-feature-pr <path to the doc>`. Use the real paths in both.
