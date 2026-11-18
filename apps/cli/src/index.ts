@@ -15,7 +15,7 @@ import pc from "picocolors";
 import { connect, isRunning, localClient, stopServer } from "./connect.ts";
 import { collectDocs } from "./docs.ts";
 import { hook, readStdin } from "./hook.ts";
-import { install, uninstall } from "./install.ts";
+import { install, uninstall, update } from "./install.ts";
 import { fitLastColumn, table, unwrap } from "./output.ts";
 import { fail, spin, state, warn } from "./ui.ts";
 
@@ -290,6 +290,11 @@ program
   .description("install openmill globally and set up the Claude plugin")
   .option("-y, --yes", "accept defaults without prompting", false)
   .action(install);
+
+program
+  .command("update")
+  .description("update openmill to the latest release and refresh the Claude plugin")
+  .action(update);
 
 program
   .command("uninstall")

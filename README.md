@@ -33,8 +33,11 @@ It:
 5. stops a running server from an older version, so the next command starts the new one
 6. asks for `concurrency`, `model`, and `effort`
 
-Pass `--yes` to skip the prompts and keep the defaults. To upgrade, run
-`npx openmill@latest install`.
+Pass `--yes` to skip the prompts and keep the defaults.
+
+To upgrade, run `openmill update`. It installs the latest release, refreshes the Claude plugin, and
+stops a server from the old version. It keeps your config and asks no questions. Config keys added
+in a new release get their defaults, which you can change with `openmill config set`.
 
 To remove openmill, run `openmill uninstall`. It stops the server and removes the plugin and the
 global package. It keeps `~/.openmill` unless you pass `--purge`.

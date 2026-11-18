@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import * as p from "@clack/prompts";
 import { EFFORTS, parseConfigValue } from "@openmill/core";
@@ -8,8 +8,14 @@ import pc from "picocolors";
 import pkg from "../package.json" with { type: "json" };
 import { localClient, serverStatus, stopServer } from "./connect.ts";
 import { installPlugin, uninstallPlugin, writeMarketplace } from "./plugin.ts";
-import { hasCommand, run, runOrThrow } from "./system.ts";
-import { installedGlobalVersion, isInside, meetsNodeVersion, MIN_NODE_MAJOR } from "./versions.ts";
+import { hasCommand, run, runInherited, runOrThrow } from "./system.ts";
+import {
+  installedGlobalVersion,
+  isInside,
+  isNewerVersion,
+  meetsNodeVersion,
+  MIN_NODE_MAJOR,
+} from "./versions.ts";
 
 export interface InstallOptions {
   yes: boolean;
@@ -69,6 +75,10 @@ async function checkPrerequisites(): Promise<{ claude: boolean }> {
     p.log.warn(`gh isn't signed in. Run ${pc.bold("gh auth login")} before queuing jobs.`);
   }
 
+  return { claude: await findClaude() };
+}
+
+async function findClaude(): Promise<boolean> {
   const claude = await hasCommand("claude");
 
   if (!claude) {
@@ -77,19 +87,25 @@ async function checkPrerequisites(): Promise<{ claude: boolean }> {
     );
   }
 
-  return { claude };
+  return claude;
+}
+
+function runningBin(): string {
+  return realpathSync(process.argv[1] as string);
+}
+
+async function globalRoot(): Promise<string> {
+  return realpathSync((await runOrThrow("npm", ["root", "-g"])).trim());
 }
 
 async function installGlobal(): Promise<string | undefined> {
-  const bin = realpathSync(process.argv[1] as string);
+  const bin = runningBin();
 
   if (!bin.split(/[\\/]/).includes("node_modules")) {
     return "running from source, skipped";
   }
 
-  const root = (await runOrThrow("npm", ["root", "-g"])).trim();
-
-  if (isInside(bin, realpathSync(root))) {
+  if (isInside(bin, await globalRoot())) {
     return "already global";
   }
 
@@ -102,6 +118,17 @@ async function installGlobal(): Promise<string | undefined> {
   await runOrThrow("npm", ["install", "-g", `${pkg.name}@${pkg.version}`]);
 
   return pkg.version;
+}
+
+async function setUpPlugin(title: string, home: string): Promise<void> {
+  await step(title, async () => {
+    const dir = join(home, "plugin");
+
+    await writeMarketplace(dir, pkg.version);
+    await installPlugin(dir);
+
+    return undefined;
+  });
 }
 
 async function stopRunningServer(): Promise<void> {
@@ -209,14 +236,7 @@ export async function install(options: InstallOptions): Promise<void> {
     });
 
     if (claude) {
-      await step("Installing the Claude plugin", async () => {
-        const dir = join(paths.home, "plugin");
-
-        await writeMarketplace(dir, pkg.version);
-        await installPlugin(dir);
-
-        return undefined;
-      });
+      await setUpPlugin("Installing the Claude plugin", paths.home);
     }
 
     await stopRunningServer();
@@ -239,6 +259,58 @@ export async function install(options: InstallOptions): Promise<void> {
     }
 
     throw error;
+  }
+}
+
+export async function update(): Promise<void> {
+  p.intro(pc.inverse(" openmill update "));
+
+  const root = await globalRoot();
+
+  if (!isInside(runningBin(), root)) {
+    throw new Error("openmill isn't installed globally. Run npx openmill install first.");
+  }
+
+  try {
+    const latest = (await runOrThrow("npm", ["view", pkg.name, "version"])).trim();
+
+    if (isNewerVersion(latest, pkg.version)) {
+      await step(`Installing openmill ${latest}`, async () => {
+        await runOrThrow("npm", ["install", "-g", `${pkg.name}@${latest}`]);
+
+        return undefined;
+      });
+
+      const dir = join(root, pkg.name);
+      const installed = JSON.parse(await readFile(join(dir, "package.json"), "utf8")) as {
+        bin: Record<string, string>;
+      };
+
+      process.exitCode = await runInherited(process.execPath, [
+        join(dir, installed.bin[pkg.name] as string),
+        "update",
+      ]);
+
+      return;
+    }
+
+    p.log.info(`Already on ${pkg.version}`);
+
+    if (await findClaude()) {
+      await setUpPlugin("Refreshing the Claude plugin", resolvePaths().home);
+    }
+
+    const status = await serverStatus(localClient());
+
+    if (status && status.version !== pkg.version) {
+      await stopRunningServer();
+    }
+
+    p.outro("openmill is up to date");
+  } catch (error) {
+    throw new Error(`${(error as Error).message}\nRun openmill update again to finish.`, {
+      cause: error,
+    });
   }
 }
 

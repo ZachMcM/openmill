@@ -19,3 +19,16 @@ export function installedGlobalVersion(npmLsOutput: string, name: string): strin
 
   return parsed.dependencies?.[name]?.version;
 }
+
+export function isNewerVersion(candidate: string, current: string): boolean {
+  const a = candidate.split(".").map(Number);
+  const b = current.split(".").map(Number);
+
+  for (let i = 0; i < 3; i++) {
+    if ((a[i] ?? 0) !== (b[i] ?? 0)) {
+      return (a[i] ?? 0) > (b[i] ?? 0);
+    }
+  }
+
+  return false;
+}

@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { installedGlobalVersion, isInside, meetsNodeVersion } from "./versions.ts";
+import { installedGlobalVersion, isInside, isNewerVersion, meetsNodeVersion } from "./versions.ts";
 
 describe("meetsNodeVersion", () => {
   it("accepts 24 and later and rejects older majors", () => {
@@ -37,5 +37,23 @@ describe("installedGlobalVersion", () => {
   it("handles empty output when nothing is installed", () => {
     expect(installedGlobalVersion("", "openmill")).toBeUndefined();
     expect(installedGlobalVersion("{}", "openmill")).toBeUndefined();
+  });
+});
+
+describe("isNewerVersion", () => {
+  it("detects a newer major, minor, or patch", () => {
+    expect(isNewerVersion("1.0.0", "0.5.1")).toBe(true);
+    expect(isNewerVersion("0.6.0", "0.5.1")).toBe(true);
+    expect(isNewerVersion("0.5.2", "0.5.1")).toBe(true);
+  });
+
+  it("rejects equal and older versions", () => {
+    expect(isNewerVersion("0.5.1", "0.5.1")).toBe(false);
+    expect(isNewerVersion("0.5.0", "0.5.1")).toBe(false);
+  });
+
+  it("compares numerically", () => {
+    expect(isNewerVersion("0.10.0", "0.9.0")).toBe(true);
+    expect(isNewerVersion("0.9.0", "0.10.0")).toBe(false);
   });
 });
