@@ -37,3 +37,20 @@ describe("session states", () => {
     expect(canTransition("cancelled", "queued")).toBe(false);
   });
 });
+
+describe("follow-up states", () => {
+  it("parks a gated run in awaiting_push and leaves it when approved, re-queued, or the PR ends", () => {
+    expect(canTransition("running", "awaiting_push")).toBe(true);
+
+    for (const to of ["running", "queued", "merged", "closed", "cancelled"] as const) {
+      expect(canTransition("awaiting_push", to)).toBe(true);
+    }
+
+    expect(canTransition("awaiting_push", "done")).toBe(false);
+    expect(canTransition("done", "awaiting_push")).toBe(false);
+  });
+
+  it("asks a human from done when a follow-up can't start", () => {
+    expect(canTransition("done", "needs_input")).toBe(true);
+  });
+});

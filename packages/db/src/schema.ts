@@ -31,6 +31,8 @@ export const jobs = sqliteTable(
     blockedReason: text(),
     prUrl: text(),
     sessionId: text(),
+    nextRun: text({ mode: "json" }).$type<NextRunRecord>(),
+    restack: text({ mode: "json" }).$type<RestackRecord>(),
     createdAt: integer({ mode: "timestamp_ms" }).notNull().default(now),
     updatedAt: integer({ mode: "timestamp_ms" }).notNull().default(now),
   },
@@ -63,6 +65,10 @@ export const runs = sqliteTable(
     agent: text().notNull(),
     model: text(),
     effort: text().notNull(),
+    kind: text().notNull().default("feature").$type<RunKindRecord>(),
+    trigger: text({ mode: "json" }).$type<TriggerRecord>(),
+    gate: text().$type<GateRecord>(),
+    startSha: text(),
     sessionId: text(),
     blockId: text(),
     transcriptPath: text(),
@@ -90,6 +96,31 @@ export const prObservations = sqliteTable("pr_observations", {
 export interface ChecksRecord {
   state: string | null;
   checks: Array<{ name: string; status: string; conclusion: string | null }>;
+}
+
+export type RunKindRecord = "feature" | "followup" | "restack";
+
+export type GateRecord = "closed" | "open";
+
+export interface TriggerRecord {
+  reviewId: string | null;
+  threads: string[];
+  checks: string[];
+  headSha: string;
+}
+
+export interface NextRunRecord {
+  kind: Exclude<RunKindRecord, "feature">;
+  trigger: TriggerRecord | null;
+  gate: GateRecord | null;
+  startSha: string | null;
+  resume: boolean;
+  message?: string;
+}
+
+export interface RestackRecord {
+  base: string;
+  cut: string;
 }
 
 export interface RunResultRecord {

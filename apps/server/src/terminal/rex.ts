@@ -82,7 +82,7 @@ export function createRexTerminal(sessionFile: string): Terminal {
   }
 
   return {
-    spawn({ label, cwd, command, env }) {
+    spawn({ label, cwd, command, env, replace }) {
       const argv = [
         "-c",
         cwd,
@@ -99,6 +99,26 @@ export function createRexTerminal(sessionFile: string): Terminal {
         .catch(() => {})
         .then(async () => {
           const session = await findSession();
+
+          // Rex can't restart a block's program, so a new block takes the old one's place in its window.
+          if (session && replace) {
+            const split = await rex([
+              "split",
+              "-s",
+              session,
+              "-b",
+              replace,
+              "--focus=false",
+              ...argv,
+            ]).catch(() => undefined);
+
+            if (split) {
+              await rex(["block", "close", "-s", session, replace]).catch(() => {});
+
+              return firstBlock(JSON.parse(split) as Created);
+            }
+          }
+
           const prefix = session
             ? ["window", "new", "-s", session, label, "--focus=false"]
             : ["new", SESSION_LABEL, "--window", label];

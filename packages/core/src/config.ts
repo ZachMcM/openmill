@@ -1,8 +1,10 @@
 export const AGENTS = ["claude"] as const;
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+export const PUSH_MODES = ["wait", "auto"] as const;
 
 export type AgentName = (typeof AGENTS)[number];
 export type Effort = (typeof EFFORTS)[number];
+export type PushMode = (typeof PUSH_MODES)[number];
 
 export interface Config {
   concurrency: number;
@@ -13,6 +15,9 @@ export interface Config {
   notify_command?: string;
   watch_interval: number;
   trusted_bots: string[];
+  review_push: PushMode;
+  ci_push: PushMode;
+  followup_attempts: number;
 }
 
 export const CONFIG_KEYS = [
@@ -24,6 +29,9 @@ export const CONFIG_KEYS = [
   "notify_command",
   "watch_interval",
   "trusted_bots",
+  "review_push",
+  "ci_push",
+  "followup_attempts",
 ] as const;
 
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
@@ -35,6 +43,9 @@ export const DEFAULT_CONFIG: Config = {
   notify_desktop: true,
   watch_interval: 120,
   trusted_bots: [],
+  review_push: "wait",
+  ci_push: "auto",
+  followup_attempts: 3,
 };
 
 const MIN_WATCH_INTERVAL = 30;
@@ -55,6 +66,14 @@ function parseOneOf<T extends string>(name: string, values: readonly T[]) {
 export const parseAgent = parseOneOf("agent", AGENTS);
 export const parseEffort = parseOneOf("effort", EFFORTS);
 
+function parsePositiveInteger(name: string, value: string): ParsedValue<number> {
+  const number = Number(value);
+
+  return Number.isInteger(number) && number > 0
+    ? { ok: true, value: number }
+    : { ok: false, error: `${name} must be a positive integer` };
+}
+
 export function parseModel(value: string): ParsedValue<string> {
   return value.trim() === ""
     ? { ok: false, error: "model must not be empty" }
@@ -63,13 +82,8 @@ export function parseModel(value: string): ParsedValue<string> {
 
 export function parseConfigValue(key: ConfigKey, value: string): ParsedValue<Config[ConfigKey]> {
   switch (key) {
-    case "concurrency": {
-      const number = Number(value);
-
-      return Number.isInteger(number) && number > 0
-        ? { ok: true, value: number }
-        : { ok: false, error: "concurrency must be a positive integer" };
-    }
+    case "concurrency":
+      return parsePositiveInteger(key, value);
     case "agent":
       return parseAgent(value);
     case "model":
@@ -100,6 +114,11 @@ export function parseConfigValue(key: ConfigKey, value: string): ParsedValue<Con
           .map((login) => login.trim())
           .filter((login) => login !== ""),
       };
+    case "review_push":
+    case "ci_push":
+      return parseOneOf(key, PUSH_MODES)(value);
+    case "followup_attempts":
+      return parsePositiveInteger(key, value);
   }
 }
 

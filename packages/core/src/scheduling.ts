@@ -23,6 +23,10 @@ function waitingState(
   jobs: ReadonlyMap<string, SchedulableJob>,
   id: string,
 ): WaitingState {
+  if (jobs.get(id)?.prUrl) {
+    return { state: "queued", blockedReason: null };
+  }
+
   for (const dep of graph.get(id) ?? []) {
     const job = jobs.get(dep);
     const state = job?.state;
@@ -77,7 +81,10 @@ function dependenciesSatisfied(
   jobs: ReadonlyMap<string, SchedulableJob>,
   id: string,
 ): boolean {
-  return (graph.get(id) ?? []).every((dep) => dependencySatisfied(jobs.get(dep)));
+  return (
+    Boolean(jobs.get(id)?.prUrl) ||
+    (graph.get(id) ?? []).every((dep) => dependencySatisfied(jobs.get(dep)))
+  );
 }
 
 export function jobsToStart(

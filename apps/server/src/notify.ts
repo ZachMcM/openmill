@@ -21,6 +21,8 @@ const EVENT_LABELS: Record<NotificationEvent, string> = {
   needs_input: "needs input",
   failed: "failed",
   ready_for_review: "ready for review",
+  followup_ready: "follow-up ready to push",
+  followups_exhausted: "follow-ups exhausted",
 };
 
 export function notificationPayload(

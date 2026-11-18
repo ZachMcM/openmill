@@ -14,6 +14,10 @@ export function withRepoLock<T>(repo: string, task: () => Promise<T>): Promise<T
   return next;
 }
 
+export async function git(cwd: string, args: string[]): Promise<string> {
+  return (await exec("git", args, cwd)).trim();
+}
+
 export async function gitRoot(dir: string): Promise<string> {
   const stdout = await exec("git", ["rev-parse", "--show-toplevel"], dir);
 

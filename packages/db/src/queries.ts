@@ -79,6 +79,10 @@ export function latestRun(db: Queryable, jobKey: number): Run | undefined {
   return db.select().from(runs).where(eq(runs.jobKey, jobKey)).orderBy(desc(runs.id)).get();
 }
 
+export function listRuns(db: Queryable, jobKey: number): Run[] {
+  return db.select().from(runs).where(eq(runs.jobKey, jobKey)).orderBy(asc(runs.id)).all();
+}
+
 export function latestRuns(db: Queryable, jobKeys: number[]): Map<number, Run> {
   const latest = new Map<number, Run>();
 

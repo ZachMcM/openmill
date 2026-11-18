@@ -164,7 +164,9 @@ program
 
 program
   .command("requeue")
-  .description("resume a failed job's session in a new window")
+  .description(
+    "resume a failed job's session, approve an awaiting_push job's changes, or retry a needs_input job's follow-ups",
+  )
   .argument("<id>")
   .action(async (id: string) => {
     const result = await unwrap(

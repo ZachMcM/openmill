@@ -8,6 +8,12 @@ describe("notificationFor", () => {
     expect(notificationFor("running", "failed")).toBe("failed");
   });
 
+  it("says a follow-up is ready to push or has run out of attempts", () => {
+    expect(notificationFor("running", "awaiting_push")).toBe("followup_ready");
+    expect(notificationFor("done", "needs_input", true)).toBe("followups_exhausted");
+    expect(notificationFor("done", "needs_input")).toBe("needs_input");
+  });
+
   it("stays quiet for blocked and other transitions", () => {
     expect(notificationFor("queued", "blocked")).toBeNull();
     expect(notificationFor("needs_input", "running")).toBeNull();
