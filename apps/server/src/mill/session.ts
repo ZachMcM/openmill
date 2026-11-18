@@ -52,6 +52,7 @@ export function launch(ctx: MillContext, key: number): void {
   void spawn(ctx, job, run, previous, resume, next?.message).catch(async (error: unknown) => {
     if (latestRun(ctx.db, key)?.id === run.id) {
       await fail(ctx, key, getRun(ctx.db, run.id), (error as Error).message ?? String(error));
+      ctx.schedule();
     }
   });
 }

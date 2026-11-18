@@ -27,18 +27,23 @@ const NO_PR_REASON = "the agent session ended without a draft PR";
 
 const UNPUSHED_REASON = "the follow-up session ended before its changes were pushed";
 
+export interface HookResult {
+  reply: unknown;
+  type?: HookEvent["type"];
+}
+
 export async function handleHook(
   ctx: MillContext,
   runId: number,
   event: string,
   payload: unknown,
-): Promise<unknown> {
+): Promise<HookResult> {
   const run = getRun(ctx.db, runId);
   const agent = run ? ctx.agents[run.agent] : undefined;
   const parsed = agent?.parseHook(event, payload);
 
   if (!run || !agent || !parsed) {
-    return null;
+    return { reply: null };
   }
 
   if (parsed.transcriptPath && parsed.transcriptPath !== run.transcriptPath) {
@@ -48,15 +53,25 @@ export async function handleHook(
   const job = getJob(ctx.db, run.jobKey);
 
   if (!job || latestRun(ctx.db, job.key)?.id !== run.id) {
-    return null;
+    return { reply: null };
   }
 
-  switch (parsed.type) {
+  return { reply: await dispatch(ctx, job, run, agent, parsed), type: parsed.type };
+}
+
+async function dispatch(
+  ctx: MillContext,
+  job: Job,
+  run: Run,
+  agent: Agent,
+  event: HookEvent,
+): Promise<unknown> {
+  switch (event.type) {
     case "stop":
-      return onStop(ctx, job, run, agent, parsed);
+      return onStop(ctx, job, run, agent, event);
     case "tool_use":
       return run.gate
-        ? agent.gateToolUse(parsed, { open: run.gate === "open", branch: job.branchName })
+        ? agent.gateToolUse(event, { open: run.gate === "open", branch: job.branchName })
         : null;
     case "prompt":
       onPrompt(ctx, job, run);
@@ -126,7 +141,6 @@ async function onStop(
       if (transition(ctx, job.key, { from: ["running"], to: "needs_input" })) {
         updateRun(ctx.db, run.id, { result: { status: "needs_input", reason } });
         notify(ctx, job.key, "running", "needs_input", reason);
-        ctx.schedule();
       }
 
       return null;
@@ -152,7 +166,6 @@ function onPrompt(ctx: MillContext, job: Job, run: Run): void {
     to: "running",
     fields: { blockedReason: null },
   });
-  ctx.schedule();
 }
 
 async function onSessionEnd(ctx: MillContext, job: Job, run: Run): Promise<void> {
@@ -191,11 +204,8 @@ async function onSessionEnd(ctx: MillContext, job: Job, run: Run): Promise<void>
 }
 
 function leftSession(ctx: MillContext, key: number): void {
-  if (
-    getJob(ctx.db, key)?.blockedReason === SESSION_OPEN_REASON &&
-    transition(ctx, key, { from: ["needs_input"], to: "done", fields: { blockedReason: null } })
-  ) {
-    ctx.schedule();
+  if (getJob(ctx.db, key)?.blockedReason === SESSION_OPEN_REASON) {
+    transition(ctx, key, { from: ["needs_input"], to: "done", fields: { blockedReason: null } });
   }
 }
 
