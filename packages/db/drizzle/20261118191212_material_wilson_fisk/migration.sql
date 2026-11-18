@@ -1,0 +1,1 @@
+ALTER TABLE `runs` ADD `busy` integer DEFAULT false NOT NULL;

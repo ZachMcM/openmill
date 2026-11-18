@@ -72,6 +72,7 @@ export const runs = sqliteTable(
     sessionId: text(),
     blockId: text(),
     transcriptPath: text(),
+    busy: integer({ mode: "boolean" }).notNull().default(false),
     startedAt: integer({ mode: "timestamp_ms" }).notNull().default(now),
     endedAt: integer({ mode: "timestamp_ms" }),
     result: text({ mode: "json" }).$type<RunResultRecord>(),

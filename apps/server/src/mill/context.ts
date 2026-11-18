@@ -18,6 +18,5 @@ export interface MillContext {
   config: Config;
   preparing: Set<number>;
   staleHeads: Map<number, string>;
-  busyRuns: Set<number>;
   schedule: () => void;
 }

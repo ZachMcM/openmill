@@ -296,7 +296,7 @@ function queueRun(ctx: MillContext, key: number, nextRun: NextRunRecord): void {
 async function sessionBusy(ctx: MillContext, key: number): Promise<boolean> {
   const run = latestRun(ctx.db, key);
 
-  if (!run?.blockId || !ctx.busyRuns.has(run.id)) {
+  if (!run?.blockId || !run.busy) {
     return false;
   }
 
