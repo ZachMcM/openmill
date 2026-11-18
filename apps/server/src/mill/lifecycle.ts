@@ -54,9 +54,7 @@ export function inSession(job: Job): boolean {
 }
 
 export function finish(ctx: MillContext, key: number, prUrl: string): void {
-  if (transition(ctx, key, { to: "done", fields: { prUrl, blockedReason: null } })) {
-    ctx.schedule();
-  }
+  transition(ctx, key, { to: "done", fields: { prUrl, blockedReason: null } });
 }
 
 export async function fail(
@@ -83,7 +81,6 @@ export async function fail(
 
   if (previous) {
     notify(ctx, key, previous.state as JobState, "failed", reason);
-    ctx.schedule();
   }
 }
 
@@ -98,7 +95,6 @@ export function needsInput(ctx: MillContext, key: number, reason: string, exhaus
 export function awaitPush(ctx: MillContext, key: number): void {
   if (transition(ctx, key, { from: ["running"], to: "awaiting_push" })) {
     notify(ctx, key, "running", "awaiting_push", null);
-    ctx.schedule();
   }
 }
 

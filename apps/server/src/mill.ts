@@ -88,7 +88,10 @@ export class Mill {
       db: options.db,
       github: options.github,
       config: () => this.ctx.config,
-      onChange: (job, events, observation) => applyPrEvents(this.ctx, job.key, events, observation),
+      onChange: (job, events, observation) => {
+        applyPrEvents(this.ctx, job.key, events, observation);
+        this.schedule();
+      },
       log,
       debug,
     });
@@ -222,7 +225,9 @@ export class Mill {
   async list(): Promise<JobSummary[]> {
     const { db } = this.ctx;
 
-    await this.detectHandFinished(listJobs(db));
+    if ((await this.detectHandFinished(listJobs(db))).size > 0) {
+      this.schedule();
+    }
 
     const jobs = listJobs(db);
     const runs = latestRuns(
@@ -341,6 +346,8 @@ export class Mill {
     const { db } = this.ctx;
 
     if ((await this.detectHandFinished([job])).has(job.key)) {
+      this.schedule();
+
       return "done";
     }
 
@@ -390,8 +397,15 @@ export class Mill {
     return "queued";
   }
 
-  hook(runId: number, event: string, payload: unknown): Promise<unknown> {
-    return handleHook(this.ctx, runId, event, payload);
+  async hook(runId: number, event: string, payload: unknown): Promise<unknown> {
+    const { reply, type } = await handleHook(this.ctx, runId, event, payload);
+
+    // Tool-use hooks fire on every agent tool call and never change job state.
+    if (type && type !== "tool_use") {
+      this.schedule();
+    }
+
+    return reply;
   }
 
   getConfig(): Config {
@@ -541,10 +555,6 @@ export class Mill {
         moved.add(job.key);
       }
     });
-
-    if (moved.size > 0) {
-      this.schedule();
-    }
 
     return moved;
   }

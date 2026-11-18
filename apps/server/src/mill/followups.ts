@@ -73,8 +73,6 @@ export function applyPrEvents(
     updateObservation(ctx.db, key, { readyNotifiedSha: observation.headSha });
     send(ctx, "ready_for_review", key, "every check passed");
   }
-
-  ctx.schedule();
 }
 
 export function followUp(ctx: MillContext): void {
