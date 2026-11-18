@@ -2,7 +2,7 @@ import { isConfigKey, parseConfigValue } from "@openmill/core";
 import { Hono } from "hono";
 import { validator } from "hono/validator";
 import type { z } from "zod";
-import { addRequestSchema, configSetSchema, jobQuerySchema } from "./api.ts";
+import { addRequestSchema, configSetSchema, hookRequestSchema, jobQuerySchema } from "./api.ts";
 import { ApiError } from "./errors.ts";
 import type { Mill } from "./mill.ts";
 
@@ -45,10 +45,23 @@ export function createApp(mill: Mill, { version, onShutdown }: AppOptions) {
 
       return c.json(mill.show(job));
     })
-    .post("/jobs/:id/stop", validate("query", jobQuerySchema), async (c) => {
+    .post("/jobs/:id/open", validate("query", jobQuerySchema), async (c) => {
       const job = await mill.resolve(c.req.param("id"), c.req.valid("query").repo);
 
-      return c.json({ state: mill.stop(job) });
+      await mill.open(job);
+
+      return c.json({ ok: true });
+    })
+    .post("/jobs/:id/cancel", validate("query", jobQuerySchema), async (c) => {
+      const job = await mill.resolve(c.req.param("id"), c.req.valid("query").repo);
+
+      return c.json({ state: await mill.cancel(job) });
+    })
+    .post("/clean", async (c) => c.json({ closed: await mill.clean() }))
+    .post("/hooks/:event", validate("json", hookRequestSchema), async (c) => {
+      const { runId, payload } = c.req.valid("json");
+
+      return c.json({ output: await mill.hook(runId, c.req.param("event"), payload) });
     })
     .post("/jobs/:id/requeue", validate("query", jobQuerySchema), async (c) => {
       const job = await mill.resolve(c.req.param("id"), c.req.valid("query").repo);

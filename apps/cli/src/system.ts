@@ -6,29 +6,15 @@ export interface RunResult {
   stderr: string;
 }
 
-const isWindows = process.platform === "win32";
-
-// npm and other tools are .cmd shims on Windows, which Node only runs through a shell.
-function quote(arg: string): string {
-  return /^[\w./:\\=@-]+$/.test(arg) ? arg : `"${arg.replaceAll('"', '\\"')}"`;
-}
-
 export function run(command: string, args: string[]): Promise<RunResult> {
-  const [file, argv] = isWindows ? [[command, ...args].map(quote).join(" "), []] : [command, args];
-
   return new Promise((resolve) => {
-    execFile(
-      file,
-      argv,
-      { shell: isWindows, windowsHide: true, maxBuffer: 16 * 1024 * 1024 },
-      (error, stdout, stderr) => {
-        resolve({
-          ok: !error,
-          stdout: stdout.toString(),
-          stderr: stderr.toString() || (error?.message ?? ""),
-        });
-      },
-    );
+    execFile(command, args, { maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
+      resolve({
+        ok: !error,
+        stdout: stdout.toString(),
+        stderr: stderr.toString() || (error?.message ?? ""),
+      });
+    });
   });
 }
 
@@ -42,6 +28,6 @@ export async function runOrThrow(command: string, args: string[]): Promise<strin
   return result.stdout;
 }
 
-export async function hasCommand(command: string): Promise<boolean> {
-  return (await run(command, ["--version"])).ok;
+export async function hasCommand(command: string, versionArgs = ["--version"]): Promise<boolean> {
+  return (await run(command, versionArgs)).ok;
 }

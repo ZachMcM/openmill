@@ -24,7 +24,7 @@ export const jobs = sqliteTable(
     requestedBase: text(),
     branchName: text().notNull(),
     worktreePath: text().notNull(),
-    harness: text(),
+    agent: text(),
     model: text(),
     effort: text(),
     state: text().notNull().default("queued"),
@@ -60,11 +60,12 @@ export const runs = sqliteTable(
     jobKey: integer()
       .notNull()
       .references(() => jobs.key, { onDelete: "cascade" }),
-    harness: text().notNull(),
+    agent: text().notNull(),
     model: text(),
     effort: text().notNull(),
     sessionId: text(),
-    recovery: integer({ mode: "boolean" }).notNull().default(false),
+    blockId: text(),
+    transcriptPath: text(),
     startedAt: integer({ mode: "timestamp_ms" }).notNull().default(now),
     endedAt: integer({ mode: "timestamp_ms" }),
     result: text({ mode: "json" }).$type<RunResultRecord>(),
@@ -92,8 +93,7 @@ export interface ChecksRecord {
 }
 
 export interface RunResultRecord {
-  status: "done" | "needs_input" | "failed" | "stopped" | "interrupted";
-  pr_url?: string;
+  status: "done" | "needs_input" | "failed" | "cancelled";
   reason?: string;
 }
 

@@ -1,0 +1,14 @@
+export type StopDecision =
+  | { kind: "done"; prUrl: string }
+  | { kind: "block" }
+  | { kind: "needs_input" };
+
+export const STOP_BLOCK_REASON = "Open the draft PR, or ask your question as a message and stop.";
+
+export function stopDecision(prUrl: string | undefined, stopHookActive: boolean): StopDecision {
+  if (prUrl) {
+    return { kind: "done", prUrl };
+  }
+
+  return stopHookActive ? { kind: "needs_input" } : { kind: "block" };
+}

@@ -9,9 +9,6 @@ vi.mock("node:child_process", () => ({
   exec: vi.fn<typeof exec>(),
   execFile: vi.fn<typeof execFile>(),
 }));
-vi.mock("./resume.ts", () => ({
-  resumeCommand: (worktree: string, sessionId: string) => `cd ${worktree} && resume ${sessionId}`,
-}));
 
 const job = {
   id: "add-login",
@@ -24,21 +21,17 @@ const job = {
 
 const reason = `Should "sessions" expire? It's unclear.\nMore detail here.`;
 const payload = notificationPayload("needs_input", job, reason);
-const body = `Should "sessions" expire? It's unclear. More detail here.`;
+const body = `Should "sessions" expire? It's unclear. More detail here. Run openmill open add-login.`;
 const platform = process.platform;
 
 function setPlatform(value: NodeJS.Platform): void {
   Object.defineProperty(process, "platform", { value, configurable: true });
 }
 
-function desktopCall(): { command: string; args: string[]; env: NodeJS.ProcessEnv } {
-  const [command, args, options] = vi.mocked(execFile).mock.calls[0] as unknown as [
-    string,
-    string[],
-    { env: NodeJS.ProcessEnv },
-  ];
+function desktopCall(): { command: string; args: string[] } {
+  const [command, args] = vi.mocked(execFile).mock.calls[0] as unknown as [string, string[]];
 
-  return { command, args, env: options.env };
+  return { command, args };
 }
 
 beforeEach(() => {
@@ -49,7 +42,7 @@ beforeEach(() => {
 afterEach(() => setPlatform(platform));
 
 describe("notificationPayload", () => {
-  it("names the job and how to resume it", () => {
+  it("names the job and how to open its window", () => {
     expect(payload).toEqual({
       event: "needs_input",
       job: "add-login",
@@ -57,9 +50,8 @@ describe("notificationPayload", () => {
       state: "needs_input",
       reason,
       pr_url: null,
-      resume: "cd /wt/add-login && resume abc",
+      open: "openmill open add-login",
     });
-    expect(notificationPayload("failed", { ...job, sessionId: null }, null).resume).toBeNull();
   });
 });
 
@@ -85,18 +77,14 @@ describe("desktop notifications", () => {
     });
   });
 
-  it("passes the title and body to PowerShell through the environment", () => {
-    setPlatform("win32");
-    createNotifier(() => {})(payload, DEFAULT_CONFIG);
+  it("keeps the open hint when it shortens a long reason", () => {
+    setPlatform("linux");
+    createNotifier(() => {})({ ...payload, reason: "x".repeat(500) }, DEFAULT_CONFIG);
 
-    const { command, args, env } = desktopCall();
+    const shown = desktopCall().args.at(-1) ?? "";
 
-    expect(command).toBe("powershell");
-    expect(args.join(" ")).not.toContain("sessions");
-    expect(env).toMatchObject({
-      OPENMILL_NOTIFY_TITLE: "openmill: add-login needs input",
-      OPENMILL_NOTIFY_BODY: body,
-    });
+    expect(shown.length).toBeLessThanOrEqual(200);
+    expect(shown).toMatch(/x… Run openmill open add-login\.$/);
   });
 
   it("logs a missing command once and stops trying", () => {

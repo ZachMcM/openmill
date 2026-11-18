@@ -15,15 +15,14 @@ already use.
 
 ## Install
 
-Requires Node 24 or later, `git`, and the GitHub CLI (`gh`), signed in with `gh auth login`. The
-Claude Code CLI is optional, but without it you can't resume sessions or use the plugin
-interactively.
+Requires macOS or Linux, Node 24 or later, `git`, the GitHub CLI (`gh`) signed in with
+`gh auth login`, [Rex](https://www.superlogical.com/rex), and the Claude Code CLI (`claude`).
 
 ```sh
 npx openmill install
 ```
 
-This works the same on macOS, Linux, and Windows. It:
+It:
 
 1. checks the prerequisites above
 2. installs `openmill` globally with `npm install -g`, at the version you ran
@@ -40,18 +39,25 @@ To remove openmill, run `openmill uninstall`. It stops the server and removes th
 global package. It keeps `~/.openmill` unless you pass `--purge`.
 
 > [!CAUTION]
-> openmill runs agents with full local permissions. Headless runs use Claude Code's
-> `bypassPermissions` mode, so an agent can run any command and edit any file your user can.
+> openmill runs agents with full local permissions. Every session starts with
+> `--dangerously-skip-permissions`, so an agent can run any command and edit any file your user can.
 > The workflow skill only opens draft PRs and never merges, but nothing else stops it.
+
+The first time a job starts, Claude Code shows its Bypass Permissions warning in the job's window.
+Run `openmill open <id>` and accept it once. openmill never accepts it for you. openmill also
+marks each repo you queue as trusted in `~/.claude.json`, so Claude doesn't ask to trust every
+new worktree.
 
 ## Usage
 
 ```sh
 openmill add docs/login.md        # queue a doc (and the docs it depends on)
 openmill ls                       # list jobs
-openmill show login               # worktree, session, and a resume command
-openmill stop login               # abort the headless run so you can take over
-openmill requeue login            # hand the job back to the queue
+openmill open login               # focus the job's Rex window
+openmill show login               # worktree, window, session, and transcript
+openmill cancel login             # close the window and cancel the job
+openmill requeue login            # resume a failed job's session in a new window
+openmill clean                    # close the windows of finished jobs
 openmill config set concurrency 3
 openmill config unset model       # back to the default
 openmill config set notify_command "curl -s -d @- ntfy.sh/my-topic"  # JSON payload on stdin
@@ -62,9 +68,18 @@ openmill server status
 The first command that needs the server starts it in the background. State lives in
 `~/.openmill`, or in `OPENMILL_HOME` when it's set.
 
-To take over a job, run `openmill stop <id>`, then paste the command `openmill show <id>` prints.
-When you're done, `openmill requeue <id>` resumes the same session headlessly, or marks the job
-done if you already opened the draft PR.
+Every job runs as an interactive `claude` session in its own window in the `openmill` Rex
+session. New windows open in the background, so a new job never takes your screen. Run
+`openmill open <id>` to watch a job, and type into its window to take it over.
+
+A job is done when its branch has a draft PR. When the agent stops without one, openmill asks it
+once to open the PR or ask its question. If it stops again, the job moves to `needs_input` and
+you get a notification. Answer in the window and the job is `running` again. A `needs_input` job
+doesn't count against `concurrency`. If the session ends without a PR, the job fails, and
+`openmill requeue <id>` resumes that session in a new window.
+
+Windows stay open after a job ends and keep running when the server restarts. When a run ends,
+openmill saves the window's text to the job's `runs` folder.
 
 Once a job has a draft PR, the server polls GitHub every `watch_interval` seconds (120 by
 default). It notifies you when the PR's checks all pass, and moves the job to `merged` or `closed`
@@ -82,7 +97,7 @@ count when they come from the repo's owners, members, or collaborators, or from 
 
 ## Supported agents
 
-<!-- TODO: SDK and CLI adapters -->
+Claude Code is the only agent so far. Set it with `openmill config set agent claude`.
 
 ## Development
 

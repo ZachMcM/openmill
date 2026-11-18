@@ -8,7 +8,7 @@ server runs each one through a coding agent until it ends as a draft PR.
 Use pnpm for everything. Never use npm or yarn, and never edit `pnpm-lock.yaml` by hand.
 
 - `pnpm install` installs the workspace.
-- `pnpm check` runs format check, lint, typecheck, and tests. It must pass before every commit, and it is what CI runs on Ubuntu and Windows along with `pnpm build`.
+- `pnpm check` runs format check, lint, typecheck, and tests. It must pass before every commit, and it is what CI runs on Ubuntu along with `pnpm build`.
 - `pnpm format` and `pnpm lint:fix` fix what they can.
 - `pnpm build`, `pnpm typecheck`, and `pnpm test` run through Turbo across all packages. To target one package, use `pnpm --filter <name> <script>`, for example `pnpm --filter @openmill/core test`.
 - Add dependencies with `pnpm --filter <name> add <dep>`. Put shared tool versions in the `catalog` in `pnpm-workspace.yaml` and reference them as `catalog:`. Workspace packages depend on each other with `workspace:*`.
@@ -23,16 +23,19 @@ Use pnpm for everything. Never use npm or yarn, and never edit `pnpm-lock.yaml` 
 | `@openmill/core` (`packages/core`)     | Design doc parsing, dependency graph, state transitions, scheduling decisions, config rules | nothing in the workspace |
 | `@openmill/db` (`packages/db`)         | Drizzle schema, migrations, queries                                                         | nothing in the workspace |
 | `@openmill/assets` (`packages/assets`) | The workflow skill and review agents, laid out as a Claude Code plugin                      | nothing in the workspace |
-| `@openmill/server` (`apps/server`)     | Hono routes, scheduler, runs, git and `gh` calls, harness adapters                          | core, db, assets         |
+| `@openmill/server` (`apps/server`)     | Hono routes, scheduler, runs, git, `gh`, and `rex` calls, terminal and agent adapters       | core, db, assets         |
 | `openmill` (`apps/cli`)                | Commander commands, the typed client, server auto-start, `install` and `uninstall`          | core, server, assets     |
 
 - `core` does no I/O: no filesystem, network, processes, or clock. Keep it pure so it stays easy to unit test.
 - The server is the only process that opens SQLite. The CLI never imports `@openmill/db` and talks to the server only through the typed client from `@openmill/server/client`.
 - Request and response shapes come from the server's Hono routes. Don't redeclare them in the CLI.
-- Only the server runs `git`, `gh`, and agent harnesses. The one exception is `openmill install`
-  and `uninstall`, which run in the CLI before a server exists. They may check that `git` and `gh`
-  are installed and run `npm` and `claude plugin`, and nothing else.
-- Every harness implements the `Harness` interface in `apps/server/src/harness/types.ts`. Harness-specific code stays in its adapter.
+- Only the server runs `git`, `gh`, `rex`, and agents. The exceptions are in the CLI.
+  `openmill install` and `uninstall` run before a server exists. They may check that `git`, `gh`,
+  and `rex` are installed and run `npm` and `claude plugin`, and nothing else. The hidden
+  `openmill hook` command runs inside agent sessions and only forwards hook JSON to the server.
+- Every terminal implements the `Terminal` interface in `apps/server/src/terminal/types.ts`, and
+  every agent implements the `Agent` interface in `apps/server/src/agent/types.ts`. Code specific
+  to one terminal or agent stays in its adapter.
 - Keep the workflow skill usable by hand. Pass run-specific facts in the prompt instead of editing the skill for openmill.
 
 ## Design and infra
@@ -40,11 +43,12 @@ Use pnpm for everything. Never use npm or yarn, and never edit `pnpm-lock.yaml` 
 - Design docs in `.design-docs/` are the spec for a change. They are gitignored. Don't edit or commit them.
 - When a design doc and this file disagree, follow this file and note the conflict in the PR.
 - State lives under `~/.openmill/`, or `OPENMILL_HOME` when it's set. Resolve paths through `resolvePaths()` and don't hardcode them.
-- The server listens on a unix socket with mode `0600`, or a named pipe on Windows. It never listens on a TCP port.
+- The server listens on a unix socket with mode `0600`. It never listens on a TCP port.
 - The scheduler is event-driven. Don't add polling or timers to it. The PR watcher is the only
   part of the server with a timer, and its output is one more event that triggers a scheduling
   pass.
 - Agents run with full local permissions. Never weaken the draft-only, no-merge rules in the workflow skill.
+- Runs need macOS or Linux and Rex. Every agent runs as an interactive session in a Rex window.
 - Target Node 24 or later and ES modules. Workspace packages export TypeScript source directly. Only the CLI is bundled, with tsdown.
 - The CLI bundle inlines `@openmill/*` packages, so any third-party package they import at runtime must also be in `apps/cli` `dependencies`. Files found through `import.meta.url` must be copied into `dist/` in `apps/cli/tsdown.config.ts`.
 
@@ -60,6 +64,6 @@ Use pnpm for everything. Never use npm or yarn, and never edit `pnpm-lock.yaml` 
 - Add tests sparingly and thoughtfully where business logic needs protection against realistic failures or regressions. Avoid test bloat, tests that merely mirror the implementation, and unreachable edge cases. Do not add production code or abstractions solely to support those cases.
 - Co-locate unit tests as `*.test.ts` beside pure functions, parsers, envelopes, payload validation, and other atomic logic without integrations.
 - Use Vitest by default. Use Jest only for a Node-specific reason.
-- Tests must pass on both Ubuntu and Windows. Use `node:path` (`join`, `resolve`) instead of hardcoded `/` separators, `os.tmpdir()` instead of hardcoded `/tmp`, avoid POSIX-only shell syntax in spawned commands, and normalize line endings and path separators before string comparisons. Do not rely on case-sensitive file names. Do not skip tests per-platform unless the behavior is genuinely OS-specific, and state the reason in the skip.
+- CI runs on Ubuntu only. Use `node:path` (`join`, `resolve`) to build paths and `os.tmpdir()` instead of hardcoded `/tmp`.
 - Avoid adding function parameters or overrides solely for tests. Use module mocks, global stubs, or fake timers instead.
 - Do not add integration or end-to-end tests yet.

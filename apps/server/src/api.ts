@@ -1,10 +1,10 @@
-import { EFFORTS, HARNESSES } from "@openmill/core";
+import { AGENTS, EFFORTS } from "@openmill/core";
 import { z } from "zod";
 
 export const addRequestSchema = z.object({
   repo: z.string().min(1),
   base: z.string().min(1).optional(),
-  harness: z.enum(HARNESSES).optional(),
+  agent: z.enum(AGENTS).optional(),
   model: z.string().min(1).optional(),
   effort: z.enum(EFFORTS).optional(),
   force: z.boolean().default(false),
@@ -39,11 +39,17 @@ export interface JobDetail extends JobSummary {
   branch: string;
   worktree: string;
   prBaseBranch: string | null;
+  window: string | null;
+  transcriptPath: string | null;
+  capturePath: string | null;
   lastResult: unknown;
-  logPath: string | null;
-  resumeCommand: string | null;
 }
 
 export const jobQuerySchema = z.object({ repo: z.string().optional() });
 
 export const configSetSchema = z.object({ value: z.string() });
+
+export const hookRequestSchema = z.object({
+  runId: z.number().int().positive(),
+  payload: z.unknown(),
+});

@@ -9,6 +9,7 @@ export interface Paths {
   socket: string;
   pid: string;
   log: string;
+  rexSession: string;
   jobsDir: string;
   worktreesDir: string;
 }
@@ -20,21 +21,13 @@ export function resolvePaths(): Paths {
     home,
     db: join(home, "openmill.db"),
     config: join(home, "config.json"),
-    socket: socketPath(home),
+    socket: join(home, "server.sock"),
     pid: join(home, "server.pid"),
     log: join(home, "server.log"),
+    rexSession: join(home, "rex-session"),
     jobsDir: join(home, "jobs"),
     worktreesDir: join(home, "worktrees"),
   };
-}
-
-// Windows has no unix socket files, so the server uses a named pipe unique to the home directory.
-function socketPath(home: string): string {
-  if (process.platform === "win32") {
-    return `\\\\.\\pipe\\openmill-${shortHash(home)}`;
-  }
-
-  return join(home, "server.sock");
 }
 
 function repoDirName(repoPath: string): string {

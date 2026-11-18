@@ -6,12 +6,14 @@ import { openDb } from "@openmill/db";
 import { createApp } from "./app.ts";
 import { readConfig } from "./config-store.ts";
 import { ghCli } from "./github.ts";
-import { claudeHarness } from "./harness/claude.ts";
+import { claudeAgent } from "./agent/claude.ts";
 import { Mill } from "./mill.ts";
 import { resolvePaths } from "./paths.ts";
+import { createRexTerminal } from "./terminal/rex.ts";
 
 export interface ServerOptions {
   version: string;
+  hookCommand: string[];
   log?: (message: string) => void;
 }
 
@@ -35,8 +37,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       db,
       paths,
       config: await readConfig(paths.config),
-      harnesses: { claude: claudeHarness },
+      terminal: createRexTerminal(paths.rexSession),
+      agents: { claude: claudeAgent },
       github: ghCli,
+      hookCommand: options.hookCommand,
       log: options.log,
       debug: process.env.OPENMILL_DEBUG ? options.log : undefined,
     });
@@ -65,16 +69,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   }) as Server;
 
   await listen(server, paths.socket);
-  mill.recover();
+  void mill.reconcile();
 
   return { closed: closed.promise, close };
 }
 
 async function listen(server: Server, socket: string): Promise<void> {
-  if (process.platform !== "win32") {
-    // The pid lock is held, so any socket file left behind belongs to a dead server.
-    rmSync(socket, { force: true });
-  }
+  // The pid lock is held, so any socket file left behind belongs to a dead server.
+  rmSync(socket, { force: true });
 
   const umask = process.umask(0o177);
 
@@ -90,9 +92,7 @@ async function listen(server: Server, socket: string): Promise<void> {
     process.umask(umask);
   }
 
-  if (process.platform !== "win32") {
-    await chmod(socket, 0o600);
-  }
+  await chmod(socket, 0o600);
 }
 
 function acquireLock(path: string): void {

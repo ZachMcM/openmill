@@ -2,8 +2,8 @@
 import {
   CONFIG_KEYS,
   isConfigKey,
+  parseAgent,
   parseEffort,
-  parseHarness,
   parseModel,
   type ParsedValue,
 } from "@openmill/core";
@@ -14,9 +14,10 @@ import type { Client } from "@openmill/server/client";
 import pc from "picocolors";
 import { connect, isRunning, localClient, stopServer } from "./connect.ts";
 import { collectDocs } from "./docs.ts";
+import { hook, readStdin } from "./hook.ts";
 import { install, uninstall } from "./install.ts";
 import { fitLastColumn, table, unwrap } from "./output.ts";
-import { command, fail, spin, state, warn } from "./ui.ts";
+import { fail, spin, state, warn } from "./ui.ts";
 
 function option<T>(parse: (value: string) => ParsedValue<T>) {
   return (value: string): T => {
@@ -53,7 +54,7 @@ program
   .argument("<paths...>", "design docs or directories of them")
   .option("--repo <path>", "target repo (default: the git root of the current directory)")
   .option("--base <branch>", "base branch for jobs with no dependency")
-  .option("--harness <name>", "harness for these jobs", option(parseHarness))
+  .option("--agent <name>", "agent for these jobs", option(parseAgent))
   .option("--model <name>", "model for these jobs", option(parseModel))
   .option("--effort <level>", "effort for these jobs", option(parseEffort))
   .option("--force", "re-queue jobs that already started", false)
@@ -71,7 +72,7 @@ program
           json: {
             repo: options.repo ?? process.cwd(),
             base: options.base,
-            harness: options.harness,
+            agent: options.agent,
             model: options.model,
             effort: options.effort,
             force: options.force,
@@ -114,7 +115,7 @@ program
 
 program
   .command("show")
-  .description("show a job and how to resume its session")
+  .description("show a job, its window, and its Claude session")
   .argument("<id>")
   .action(async (id: string) => {
     const job = await unwrap(
@@ -126,37 +127,44 @@ program
       ["state", `${state(job.state)}${job.reason ? ` (${job.reason})` : ""}`],
       ["branch", `${job.branch}${job.prBaseBranch ? ` -> ${job.prBaseBranch}` : ""}`],
       ["worktree", job.worktree],
+      ["window", job.window ?? "-"],
       ["session", job.sessionId ?? "-"],
+      ["transcript", job.transcriptPath ?? "-"],
       ["pr", job.prUrl ?? "-"],
-      ["log", job.logPath ?? "-"],
+      ["capture", job.capturePath ?? "-"],
       ["result", job.lastResult ? JSON.stringify(job.lastResult) : "-"],
     ];
-    const lines = fields.map(([label, value]) => `${pc.dim(`${label}:`.padEnd(11))}${value}`);
 
-    if (job.resumeCommand) {
-      lines.push("", "Resume the session:", `  ${command(job.resumeCommand)}`);
-    }
-
-    console.log(lines.join("\n"));
+    console.log(
+      fields.map(([label, value]) => `${pc.dim(`${label}:`.padEnd(12))}${value}`).join("\n"),
+    );
   });
 
 program
-  .command("stop")
-  .description("abort a running job so you can take it over")
+  .command("open")
+  .description("focus a job's window in Rex")
+  .argument("<id>")
+  .action(async (id: string) => {
+    await unwrap(
+      (await connect()).jobs[":id"].open.$post({ param: { id }, query: { repo: process.cwd() } }),
+    );
+  });
+
+program
+  .command("cancel")
+  .description("close a job's window and cancel it")
   .argument("<id>")
   .action(async (id: string) => {
     const result = await unwrap(
-      (await connect()).jobs[":id"].stop.$post({ param: { id }, query: { repo: process.cwd() } }),
+      (await connect()).jobs[":id"].cancel.$post({ param: { id }, query: { repo: process.cwd() } }),
     );
 
-    console.log(
-      `${pc.bold(id)} is ${state(result.state)}. Run ${command(`openmill show ${id}`)} for the resume command.`,
-    );
+    console.log(`${pc.bold(id)} is ${state(result.state)}`);
   });
 
 program
   .command("requeue")
-  .description("hand a paused, needs_input, or failed job back to the queue")
+  .description("resume a failed job's session in a new window")
   .argument("<id>")
   .action(async (id: string) => {
     const result = await unwrap(
@@ -167,6 +175,23 @@ program
     );
 
     console.log(`${pc.bold(id)} is ${state(result.state)}`);
+  });
+
+program
+  .command("clean")
+  .description("close the windows of done, merged, closed, and cancelled jobs")
+  .action(async () => {
+    const { closed } = await unwrap((await connect()).clean.$post());
+
+    console.log(`closed ${closed} ${closed === 1 ? "window" : "windows"}`);
+  });
+
+program
+  .command("hook", { hidden: true })
+  .description("forward a Claude Code hook event to the server")
+  .argument("<event>")
+  .action(async (event: string) => {
+    await hook(event, await readStdin());
   });
 
 const config = program.command("config").description("read and write config.json");
@@ -208,7 +233,7 @@ config.command("list").action(async () => {
       ["KEY", "VALUE"],
       CONFIG_KEYS.map((key) => [
         key,
-        values[key] === undefined ? pc.dim("(harness default)") : String(values[key]),
+        values[key] === undefined ? pc.dim("(agent default)") : String(values[key]),
       ]),
     ),
   );
@@ -247,6 +272,7 @@ server
   .action(async () => {
     const running = await startServer({
       version: pkg.version,
+      hookCommand: [process.execPath, ...process.execArgv, process.argv[1] as string],
       log: (message) => console.error(message),
     });
 
