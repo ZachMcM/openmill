@@ -41,7 +41,9 @@ Use pnpm for everything. Never use npm or yarn, and never edit `pnpm-lock.yaml` 
 - When a design doc and this file disagree, follow this file and note the conflict in the PR.
 - State lives under `~/.openmill/`, or `OPENMILL_HOME` when it's set. Resolve paths through `resolvePaths()` and don't hardcode them.
 - The server listens on a unix socket with mode `0600`, or a named pipe on Windows. It never listens on a TCP port.
-- The scheduler is event-driven. Don't add polling or timers to it.
+- The scheduler is event-driven. Don't add polling or timers to it. The PR watcher is the only
+  part of the server with a timer, and its output is one more event that triggers a scheduling
+  pass.
 - Agents run with full local permissions. Never weaken the draft-only, no-merge rules in the workflow skill.
 - Target Node 24 or later and ES modules. Workspace packages export TypeScript source directly. Only the CLI is bundled, with tsdown.
 - The CLI bundle inlines `@openmill/*` packages, so any third-party package they import at runtime must also be in `apps/cli` `dependencies`. Files found through `import.meta.url` must be copied into `dist/` in `apps/cli/tsdown.config.ts`.

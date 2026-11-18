@@ -11,6 +11,8 @@ const STATE_COLORS: Record<JobState, (text: string) => string> = {
   failed: pc.red,
   blocked: pc.yellow,
   cancelled: pc.dim,
+  merged: pc.greenBright,
+  closed: pc.dim,
 };
 
 export function state(value: string): string {

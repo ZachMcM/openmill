@@ -38,6 +38,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       harnesses: { claude: claudeHarness },
       github: ghCli,
       log: options.log,
+      debug: process.env.OPENMILL_DEBUG ? options.log : undefined,
     });
   } catch (error) {
     rmSync(paths.pid, { force: true });
