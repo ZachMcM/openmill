@@ -6,6 +6,7 @@ const STATE_COLORS: Record<JobState, (text: string) => string> = {
   queued: pc.blue,
   running: pc.cyan,
   needs_input: pc.yellow,
+  awaiting_push: pc.magenta,
   done: pc.green,
   failed: pc.red,
   blocked: pc.yellow,

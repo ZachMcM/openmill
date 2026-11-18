@@ -1,18 +1,34 @@
 import { checksSucceeded, type PrEvent, type PrObservation } from "./observation.ts";
 import type { JobState } from "./states.ts";
 
-export const NOTIFICATION_EVENTS = ["needs_input", "failed", "ready_for_review"] as const;
+export const NOTIFICATION_EVENTS = [
+  "needs_input",
+  "failed",
+  "ready_for_review",
+  "followup_ready",
+  "followups_exhausted",
+] as const;
 
 export type NotificationEvent = (typeof NOTIFICATION_EVENTS)[number];
 
-const TRANSITION_EVENTS: readonly JobState[] = ["needs_input", "failed"];
+const TRANSITION_EVENTS: Partial<Record<JobState, NotificationEvent>> = {
+  needs_input: "needs_input",
+  failed: "failed",
+  awaiting_push: "followup_ready",
+};
 
-export function notificationFor(from: JobState, to: JobState): NotificationEvent | null {
+export function notificationFor(
+  from: JobState,
+  to: JobState,
+  exhausted = false,
+): NotificationEvent | null {
   if (from === to) {
     return null;
   }
 
-  return TRANSITION_EVENTS.includes(to) ? (to as NotificationEvent) : null;
+  return exhausted && to === "needs_input"
+    ? "followups_exhausted"
+    : (TRANSITION_EVENTS[to] ?? null);
 }
 
 export function prNotificationFor(

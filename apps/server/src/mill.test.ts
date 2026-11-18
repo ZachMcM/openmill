@@ -42,6 +42,7 @@ function github(drafts: Record<string, string> = {}): GitHub {
     findOpenDraft: async (_repo, branch) => drafts[branch],
     graphql: vi.fn<GitHub["graphql"]>(),
     graphqlResetAt: vi.fn<GitHub["graphqlResetAt"]>(),
+    editPrBase: vi.fn<GitHub["editPrBase"]>(),
   };
 }
 

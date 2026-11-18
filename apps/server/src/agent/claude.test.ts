@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { claudeAgent } from "./claude.ts";
+import { startPrompt } from "./prompt.ts";
 import type { RunInput } from "./types.ts";
 
 const input: RunInput = {
@@ -14,7 +15,16 @@ const input: RunInput = {
   effort: "high",
   sessionId: "0b7c4a52-5f0e-4c61-9d53-6a4c1f6f2a10",
   hookCommand: ["/usr/bin/node", "/opt/open mill/openmill.mjs"],
+  pushGate: false,
 };
+
+function settingsHooks(command: string[]) {
+  return (
+    JSON.parse(flag(command, "--settings") ?? "{}") as {
+      hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ command: string }> }>>;
+    }
+  ).hooks;
+}
 
 function flag(command: string[], name: string): string | undefined {
   const index = command.indexOf(name);
@@ -23,7 +33,7 @@ function flag(command: string[], name: string): string | undefined {
 }
 
 describe("claudeAgent.launch", () => {
-  const { command } = claudeAgent.launch(input);
+  const { command } = claudeAgent.launch(input, startPrompt(input));
 
   it("starts a new interactive session with the given id and the workflow prompt", () => {
     expect(command[0]).toBe("claude");
@@ -41,9 +51,7 @@ describe("claudeAgent.launch", () => {
       expect.arrayContaining(["verifier", "code-simplifier"]),
     );
 
-    const { hooks } = JSON.parse(flag(command, "--settings") ?? "{}") as {
-      hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>>;
-    };
+    const hooks = settingsHooks(command);
 
     expect(Object.keys(hooks).toSorted()).toEqual(["SessionEnd", "Stop", "UserPromptSubmit"]);
     expect(hooks.Stop?.[0]?.hooks[0]?.command).toBe(
@@ -51,14 +59,23 @@ describe("claudeAgent.launch", () => {
     );
   });
 
+  it("adds a Bash PreToolUse hook only for gated runs", () => {
+    const hooks = settingsHooks(claudeAgent.launch({ ...input, pushGate: true }, "go").command);
+
+    expect(hooks.PreToolUse?.[0]?.matcher).toBe("Bash");
+    expect(hooks.PreToolUse?.[0]?.hooks[0]?.command).toMatch(/ hook PreToolUse$/);
+  });
+
   it("leaves the model out when none is set", () => {
-    expect(claudeAgent.launch({ ...input, model: undefined }).command).not.toContain("--model");
+    expect(claudeAgent.launch({ ...input, model: undefined }, "go").command).not.toContain(
+      "--model",
+    );
   });
 });
 
 describe("claudeAgent.resume", () => {
   it("resumes the session with the same settings and no prompt", () => {
-    const launch = claudeAgent.launch(input).command;
+    const launch = claudeAgent.launch(input, "go").command;
     const { command } = claudeAgent.resume(input);
 
     expect(flag(command, "--resume")).toBe(input.sessionId);
@@ -66,6 +83,7 @@ describe("claudeAgent.resume", () => {
     expect(flag(command, "--settings")).toBe(flag(launch, "--settings"));
     expect(flag(command, "--agents")).toBe(flag(launch, "--agents"));
     expect(command.at(-1)).toBe("high");
+    expect(claudeAgent.resume(input, "Push it.").command.at(-1)).toBe("Push it.");
   });
 });
 
@@ -82,8 +100,27 @@ describe("claudeAgent.parseHook", () => {
     expect(claudeAgent.parseHook("SessionEnd", payload)?.type).toBe("session_end");
   });
 
+  it("reads the command of a Bash tool call and denies it when the gate holds it", () => {
+    const event = claudeAgent.parseHook("PreToolUse", {
+      ...payload,
+      tool_name: "Bash",
+      tool_input: { command: "git push" },
+    });
+
+    expect(event).toEqual({ type: "tool_use", transcriptPath: "/t.jsonl", command: "git push" });
+
+    if (event?.type !== "tool_use") {
+      throw new Error("expected a tool_use event");
+    }
+
+    expect(claudeAgent.gateToolUse(event, { open: false, branch: "openmill/login" })).toMatchObject(
+      { hookSpecificOutput: { permissionDecision: "deny" } },
+    );
+    expect(claudeAgent.gateToolUse(event, { open: true, branch: "openmill/login" })).toBeNull();
+  });
+
   it("ignores unknown events and malformed payloads", () => {
-    expect(claudeAgent.parseHook("PreToolUse", payload)).toBeUndefined();
+    expect(claudeAgent.parseHook("Notification", payload)).toBeUndefined();
     expect(claudeAgent.parseHook("Stop", { transcript_path: "/t.jsonl" })).toBeUndefined();
   });
 });

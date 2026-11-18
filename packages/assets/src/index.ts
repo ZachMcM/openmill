@@ -2,6 +2,8 @@ import { fileURLToPath } from "node:url";
 
 export const WORKFLOW_SKILL = "autonomous-feature-pr";
 
+export const FOLLOWUP_SKILL = "address-pr-feedback";
+
 export const REVIEW_AGENTS = ["verifier", "code-simplifier"] as const;
 
 export const pluginDir: string = fileURLToPath(new URL("..", import.meta.url));

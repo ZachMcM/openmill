@@ -3,6 +3,7 @@ export interface SpawnInput {
   cwd: string;
   command: string[];
   env: Record<string, string>;
+  replace?: string;
 }
 
 export interface TerminalBlock {

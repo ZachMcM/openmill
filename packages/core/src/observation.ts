@@ -91,11 +91,16 @@ function checksFinished(checks: PrChecks): boolean {
   return checks.checks.length > 0 && checks.checks.every((check) => check.status === "COMPLETED");
 }
 
+function failed(check: PrCheck): boolean {
+  return !SUCCESSFUL_CONCLUSIONS.includes(check.conclusion ?? "");
+}
+
 export function checksSucceeded(checks: PrChecks): boolean {
-  return (
-    checksFinished(checks) &&
-    checks.checks.every((check) => SUCCESSFUL_CONCLUSIONS.includes(check.conclusion ?? ""))
-  );
+  return checksFinished(checks) && !checks.checks.some(failed);
+}
+
+export function failingChecks(checks: PrChecks): string[] {
+  return checksFinished(checks) ? checks.checks.filter(failed).map((check) => check.name) : [];
 }
 
 export function diffObservation(

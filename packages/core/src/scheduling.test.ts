@@ -102,4 +102,11 @@ describe("scheduling", () => {
       ]),
     );
   });
+
+  it("doesn't hold a queued follow-up on a job with a PR behind its dependencies", () => {
+    const states = jobs({ a: "cancelled", b: "queued" }, ["b"]);
+
+    expect(waitingUpdates(chain, states).size).toBe(0);
+    expect(jobsToStart(chain, states, 1)).toEqual(["b"]);
+  });
 });

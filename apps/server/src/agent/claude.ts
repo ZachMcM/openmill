@@ -4,19 +4,24 @@ import { join } from "node:path";
 import { pluginDir } from "@openmill/assets";
 import { z } from "zod";
 import { loadClaudeAgents } from "./agents.ts";
-import { startPrompt } from "./prompt.ts";
+import { pushGateDenial } from "./claude-push-gate.ts";
 import type { Agent, HookEvent, RunInput } from "./types.ts";
 
 const HOOK_TYPES = {
   Stop: "stop",
   UserPromptSubmit: "prompt",
   SessionEnd: "session_end",
+  PreToolUse: "tool_use",
 } as const satisfies Record<string, HookEvent["type"]>;
+
+const SESSION_HOOKS = ["Stop", "UserPromptSubmit", "SessionEnd"] as const;
 
 const hookPayloadSchema = z.object({
   session_id: z.string(),
   transcript_path: z.string().optional(),
   stop_hook_active: z.boolean().optional(),
+  tool_name: z.string().optional(),
+  tool_input: z.looseObject({ command: z.string().optional() }).optional(),
 });
 
 const transcriptLineSchema = z.object({
@@ -52,14 +57,18 @@ function shellQuote(value: string): string {
   return /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-function hooksSettings(hookCommand: string[]): string {
-  const base = hookCommand.map(shellQuote).join(" ");
-  const hooks = Object.fromEntries(
-    Object.keys(HOOK_TYPES).map((event) => [
-      event,
-      [{ hooks: [{ type: "command", command: `${base} hook ${event}` }] }],
-    ]),
+function hooksSettings(input: RunInput): string {
+  const base = input.hookCommand.map(shellQuote).join(" ");
+  const hook = (event: keyof typeof HOOK_TYPES) => ({
+    hooks: [{ type: "command", command: `${base} hook ${event}` }],
+  });
+  const hooks: Record<string, unknown[]> = Object.fromEntries(
+    SESSION_HOOKS.map((event) => [event, [hook(event)]]),
   );
+
+  if (input.pushGate) {
+    hooks.PreToolUse = [{ matcher: "Bash", ...hook("PreToolUse") }];
+  }
 
   return JSON.stringify({ hooks });
 }
@@ -72,7 +81,7 @@ function sharedArgs(input: RunInput): string[] {
     "--agents",
     JSON.stringify(loadClaudeAgents()),
     "--settings",
-    hooksSettings(input.hookCommand),
+    hooksSettings(input),
     ...(input.model ? ["--model", input.model] : []),
     "--effort",
     input.effort,
@@ -80,21 +89,24 @@ function sharedArgs(input: RunInput): string[] {
 }
 
 export const claudeAgent: Agent = {
-  launch(input) {
+  launch(input, prompt) {
     return {
-      command: [
-        "claude",
-        "--session-id",
-        input.sessionId,
-        ...sharedArgs(input),
-        startPrompt(input),
-      ],
+      command: ["claude", "--session-id", input.sessionId, ...sharedArgs(input), prompt],
       env: {},
     };
   },
 
-  resume(input) {
-    return { command: ["claude", "--resume", input.sessionId, ...sharedArgs(input)], env: {} };
+  resume(input, message) {
+    return {
+      command: [
+        "claude",
+        "--resume",
+        input.sessionId,
+        ...sharedArgs(input),
+        ...(message ? [message] : []),
+      ],
+      env: {},
+    };
   },
 
   parseHook(event, payload) {
@@ -107,9 +119,32 @@ export const claudeAgent: Agent = {
 
     const { transcript_path: transcriptPath } = parsed.data;
 
-    return type === "stop"
-      ? { type, transcriptPath, stopHookActive: parsed.data.stop_hook_active ?? false }
-      : { type, transcriptPath };
+    switch (type) {
+      case "stop":
+        return { type, transcriptPath, stopHookActive: parsed.data.stop_hook_active ?? false };
+      case "tool_use":
+        return {
+          type,
+          transcriptPath,
+          command: parsed.data.tool_name === "Bash" ? parsed.data.tool_input?.command : undefined,
+        };
+      default:
+        return { type, transcriptPath };
+    }
+  },
+
+  gateToolUse(event, gate) {
+    const reason = event.command ? pushGateDenial(event.command, gate) : undefined;
+
+    return reason
+      ? {
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            permissionDecision: "deny",
+            permissionDecisionReason: reason,
+          },
+        }
+      : null;
   },
 
   async lastMessage(transcriptPath) {

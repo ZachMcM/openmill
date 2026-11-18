@@ -2,6 +2,7 @@ export const JOB_STATES = [
   "queued",
   "running",
   "needs_input",
+  "awaiting_push",
   "done",
   "failed",
   "blocked",
@@ -14,10 +15,11 @@ export type JobState = (typeof JOB_STATES)[number];
 
 const TRANSITIONS: Record<JobState, readonly JobState[]> = {
   queued: ["running", "blocked", "queued", "cancelled"],
-  running: ["done", "needs_input", "failed", "queued", "cancelled"],
+  running: ["done", "needs_input", "awaiting_push", "failed", "queued", "cancelled"],
   needs_input: ["running", "done", "failed", "queued", "cancelled"],
+  awaiting_push: ["running", "queued", "merged", "closed", "cancelled"],
   failed: ["queued", "done", "cancelled"],
-  done: ["queued", "cancelled", "merged", "closed"],
+  done: ["queued", "needs_input", "cancelled", "merged", "closed"],
   blocked: ["queued", "blocked", "cancelled"],
   cancelled: [],
   merged: [],
@@ -41,7 +43,7 @@ export const BLOCKING_STATES: readonly JobState[] = [
   "closed",
 ];
 
-export const REQUEUEABLE_STATES: readonly JobState[] = ["failed"];
+export const REQUEUEABLE_STATES: readonly JobState[] = ["failed", "awaiting_push", "needs_input"];
 
 export const HAND_OFF_STATES: readonly JobState[] = ["needs_input", "failed"];
 
@@ -52,4 +54,4 @@ export const CLEANABLE_STATES: readonly JobState[] = ["done", "merged", "closed"
 export const UPDATABLE_STATES: readonly JobState[] = ["queued", "blocked"];
 
 // closed is watched too, since that is the only way to see the PR reopen.
-export const WATCHED_STATES: readonly JobState[] = ["done", "closed"];
+export const WATCHED_STATES: readonly JobState[] = ["done", "awaiting_push", "closed"];

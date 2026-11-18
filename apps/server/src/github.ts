@@ -9,6 +9,7 @@ export interface GitHub {
     variables: Record<string, string | number>,
   ): Promise<unknown>;
   graphqlResetAt(repo: string, host: string): Promise<Date>;
+  editPrBase(repo: string, prUrl: string, base: string): Promise<void>;
 }
 
 export const ghCli: GitHub = {
@@ -49,5 +50,9 @@ export const ghCli: GitHub = {
     );
 
     return new Date(Number(stdout.trim()) * 1000);
+  },
+
+  async editPrBase(repo, prUrl, base) {
+    await exec("gh", ["pr", "edit", prUrl, "--base", base], repo);
   },
 };
