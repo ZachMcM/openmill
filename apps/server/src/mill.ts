@@ -212,7 +212,7 @@ export class Mill {
           updateJob(tx, job.key, fields);
           touched.push({ key: job.key, dependsOn: doc.dependsOn });
         } else if (job && action === "requeued") {
-          assertTransition(job.state as JobState, "queued");
+          assertTransition(getJob(tx, job.key)?.state as JobState, "queued");
           updateJob(tx, job.key, {
             ...fields,
             state: "queued",
@@ -364,15 +364,20 @@ export class Mill {
       throw new ApiError(409, `${job.id} is ${job.state}; only failed jobs can be requeued`);
     }
 
-    const state = (await this.detectHandFinished([job])).has(job.key) ? "done" : "queued";
-
-    if (state === "queued") {
-      updateJob(this.db, job.key, { state: "queued", blockedReason: null });
+    if ((await this.detectHandFinished([job])).has(job.key)) {
+      return "done";
     }
 
+    const current = getJob(this.db, job.key);
+
+    if (!current || !REQUEUEABLE_STATES.includes(current.state as JobState)) {
+      throw new ApiError(409, `${job.id} is ${current?.state}; only failed jobs can be requeued`);
+    }
+
+    updateJob(this.db, job.key, { state: "queued", blockedReason: null });
     this.schedule();
 
-    return state;
+    return "queued";
   }
 
   async hook(runId: number, event: string, payload: unknown): Promise<unknown> {
@@ -534,9 +539,15 @@ export class Mill {
 
     updateJob(this.db, job.key, { state: "running", blockedReason: null });
 
-    void this.spawn(job, run, previous).catch((error: unknown) =>
-      this.fail(job.key, getRun(this.db, run.id), (error as Error).message ?? String(error)),
-    );
+    void this.spawn(job, run, previous).catch(async (error: unknown) => {
+      if (latestRun(this.db, job.key)?.id === run.id) {
+        await this.fail(
+          job.key,
+          getRun(this.db, run.id),
+          (error as Error).message ?? String(error),
+        );
+      }
+    });
   }
 
   private async spawn(job: Job, run: Run, previous: Run | undefined): Promise<void> {
@@ -617,6 +628,7 @@ export class Mill {
 
     updateRun(this.db, run.id, { result: null });
     updateJob(this.db, job.key, { state: "running" });
+    this.schedule();
   }
 
   private async onSessionEnd(job: Job, run: Run): Promise<void> {

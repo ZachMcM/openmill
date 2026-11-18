@@ -136,11 +136,15 @@ export function createRexTerminal(sessionFile: string): Terminal {
 
       return Promise.all(
         blocks.map(async (block): Promise<TerminalBlock> => {
-          const info = JSON.parse(
-            await rex(["block", "call", "-s", session, "-b", block.blockId, "process"]),
-          ) as { last_exit?: unknown };
+          const alive = await rex(["block", "call", "-s", session, "-b", block.blockId, "process"])
+            .then((stdout) => {
+              const { last_exit: lastExit } = JSON.parse(stdout) as { last_exit?: unknown };
 
-          return { ...block, alive: info.last_exit === null || info.last_exit === undefined };
+              return lastExit === null || lastExit === undefined;
+            })
+            .catch(() => false);
+
+          return { ...block, alive };
         }),
       );
     },
