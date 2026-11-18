@@ -7,6 +7,8 @@ export const JOB_STATES = [
   "failed",
   "blocked",
   "cancelled",
+  "merged",
+  "closed",
 ] as const;
 
 export type JobState = (typeof JOB_STATES)[number];
@@ -15,23 +17,37 @@ const TRANSITIONS: Record<JobState, readonly JobState[]> = {
   queued: ["running", "blocked", "queued", "cancelled"],
   running: ["done", "needs_input", "failed", "paused", "queued"],
   needs_input: ["queued", "done", "cancelled"],
-  paused: ["queued", "done", "cancelled"],
+  paused: ["queued", "done", "cancelled", "merged", "closed"],
   failed: ["queued", "done", "cancelled"],
-  done: ["queued", "cancelled"],
+  done: ["queued", "cancelled", "merged", "closed"],
   blocked: ["queued", "blocked", "cancelled"],
   cancelled: [],
+  merged: [],
+  closed: ["done", "cancelled"],
 };
 
+export function canTransition(from: JobState, to: JobState): boolean {
+  return TRANSITIONS[from].includes(to);
+}
+
 export function assertTransition(from: JobState, to: JobState): void {
-  if (!TRANSITIONS[from].includes(to)) {
+  if (!canTransition(from, to)) {
     throw new Error(`cannot move a job from ${from} to ${to}`);
   }
 }
 
-export const BLOCKING_STATES: readonly JobState[] = ["failed", "needs_input", "cancelled"];
+export const BLOCKING_STATES: readonly JobState[] = [
+  "failed",
+  "needs_input",
+  "cancelled",
+  "closed",
+];
 
 export const REQUEUEABLE_STATES: readonly JobState[] = ["paused", "needs_input", "failed"];
 
 export const HAND_OFF_STATES: readonly JobState[] = REQUEUEABLE_STATES;
 
 export const UPDATABLE_STATES: readonly JobState[] = ["queued", "blocked"];
+
+// closed is watched too, since that is the only way to see the PR reopen.
+export const WATCHED_STATES: readonly JobState[] = ["done", "paused", "closed"];

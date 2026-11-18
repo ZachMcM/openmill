@@ -10,14 +10,32 @@ describe("config", () => {
     expect(parseConfigValue("effort", "huge").ok).toBe(false);
     expect(parseConfigValue("harness", "codex").ok).toBe(false);
     expect(parseConfigValue("model", "opus")).toEqual({ ok: true, value: "opus" });
+    expect(parseConfigValue("notify_desktop", "false")).toEqual({ ok: true, value: false });
+    expect(parseConfigValue("notify_desktop", "no").ok).toBe(false);
+    expect(parseConfigValue("notify_command", "")).toEqual({ ok: true, value: undefined });
+    expect(parseConfigValue("watch_interval", "30")).toEqual({ ok: true, value: 30 });
+    expect(parseConfigValue("watch_interval", "29").ok).toBe(false);
+    expect(parseConfigValue("trusted_bots", "a[bot], b[bot],")).toEqual({
+      ok: true,
+      value: ["a[bot]", "b[bot]"],
+    });
   });
 
   it("fills defaults and drops unknown or invalid stored values", () => {
     expect(resolveConfig(undefined)).toEqual(DEFAULT_CONFIG);
-    expect(resolveConfig({ concurrency: 3, effort: "nope", extra: 1, model: "sonnet" })).toEqual({
+    expect(
+      resolveConfig({
+        concurrency: 3,
+        effort: "nope",
+        extra: 1,
+        model: "sonnet",
+        trusted_bots: ["a[bot]", "b[bot]"],
+      }),
+    ).toEqual({
       ...DEFAULT_CONFIG,
       concurrency: 3,
       model: "sonnet",
+      trusted_bots: ["a[bot]", "b[bot]"],
     });
   });
 });

@@ -5,6 +5,13 @@ export interface SchedulableJob {
   id: string;
   state: JobState;
   blockedReason: string | null;
+  prUrl: string | null;
+}
+
+function dependencySatisfied(job: SchedulableJob | undefined): boolean {
+  return (
+    job !== undefined && job.prUrl !== null && job.state !== "closed" && job.state !== "cancelled"
+  );
 }
 
 export type WaitingState =
@@ -17,7 +24,12 @@ function waitingState(
   id: string,
 ): WaitingState {
   for (const dep of graph.get(id) ?? []) {
-    const state = jobs.get(dep)?.state;
+    const job = jobs.get(dep);
+    const state = job?.state;
+
+    if (dependencySatisfied(job)) {
+      continue;
+    }
 
     if (state !== undefined && BLOCKING_STATES.includes(state)) {
       return { state: "blocked", blockedReason: `dependency ${dep} is ${state}` };
@@ -65,7 +77,7 @@ function dependenciesSatisfied(
   jobs: ReadonlyMap<string, SchedulableJob>,
   id: string,
 ): boolean {
-  return (graph.get(id) ?? []).every((dep) => jobs.get(dep)?.state === "done");
+  return (graph.get(id) ?? []).every((dep) => dependencySatisfied(jobs.get(dep)));
 }
 
 export function jobsToStart(

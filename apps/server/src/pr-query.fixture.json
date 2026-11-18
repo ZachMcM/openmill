@@ -1,0 +1,188 @@
+{
+  "data": {
+    "rateLimit": {
+      "limit": 5000,
+      "remaining": 4956,
+      "resetAt": "2026-11-17T22:25:30Z"
+    },
+    "repository": {
+      "pr1": {
+        "state": "MERGED",
+        "merged": true,
+        "isDraft": false,
+        "headRefOid": "2a0b16062c78ebbd72875fa7dc5c5609f725e14c",
+        "baseRefName": "main",
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "statusCheckRollup": {
+                  "state": "SUCCESS",
+                  "contexts": {
+                    "nodes": [
+                      {
+                        "type": "CheckRun",
+                        "name": "Check (ubuntu-latest)",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS"
+                      },
+                      {
+                        "type": "CheckRun",
+                        "name": "Check (windows-latest)",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS"
+                      },
+                      {
+                        "type": "CheckRun",
+                        "name": "GitGuardian Security Checks",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "reviewThreads": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": null
+          },
+          "nodes": []
+        },
+        "reviews": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": null
+          },
+          "nodes": []
+        }
+      },
+      "pr2": {
+        "state": "OPEN",
+        "merged": false,
+        "isDraft": true,
+        "headRefOid": "fbb1dc8d8881b713ad41ef21bc2f64077276f959",
+        "baseRefName": "main",
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "statusCheckRollup": {
+                  "state": "PENDING",
+                  "contexts": {
+                    "nodes": [
+                      {
+                        "type": "CheckRun",
+                        "name": "Check (ubuntu-latest)",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS"
+                      },
+                      {
+                        "type": "CheckRun",
+                        "name": "Check (windows-latest)",
+                        "status": "IN_PROGRESS",
+                        "conclusion": null
+                      },
+                      {
+                        "type": "CheckRun",
+                        "name": "GitGuardian Security Checks",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS"
+                      },
+                      {
+                        "type": "StatusContext",
+                        "context": "netlify/deploy-preview",
+                        "state": "SUCCESS"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "reviewThreads": {
+          "pageInfo": {
+            "hasNextPage": true,
+            "endCursor": "Y3Vyc29yOnYyOpHOThreads"
+          },
+          "nodes": [
+            {
+              "id": "PRRT_kwDOQ1",
+              "isResolved": false,
+              "comments": {
+                "nodes": [
+                  {
+                    "author": {
+                      "type": "User",
+                      "login": "ZachMcM"
+                    },
+                    "authorAssociation": "OWNER"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "PRRT_kwDOQ2",
+              "isResolved": false,
+              "comments": {
+                "nodes": [
+                  {
+                    "author": {
+                      "type": "Bot",
+                      "login": "copilot-pull-request-reviewer"
+                    },
+                    "authorAssociation": "NONE"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "PRRT_kwDOQ3",
+              "isResolved": true,
+              "comments": {
+                "nodes": [
+                  {
+                    "author": null,
+                    "authorAssociation": "NONE"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "reviews": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": "Y3Vyc29yOnYyOpO0Reviews"
+          },
+          "nodes": [
+            {
+              "id": "PRR_kwDOR1",
+              "state": "COMMENTED",
+              "submittedAt": "2026-11-17T21:04:11Z",
+              "author": {
+                "type": "User",
+                "login": "ZachMcM"
+              },
+              "authorAssociation": "OWNER"
+            },
+            {
+              "id": "PRR_kwDOR2",
+              "state": "PENDING",
+              "submittedAt": null,
+              "author": {
+                "type": "User",
+                "login": "drive-by"
+              },
+              "authorAssociation": "NONE"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
