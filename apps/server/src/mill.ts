@@ -1,85 +1,59 @@
-import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import {
   CLEANABLE_STATES,
-  FOLLOWUP_BLOCK_REASON,
   HAND_OFF_STATES,
   REQUEUEABLE_STATES,
   SESSION_STATES,
-  STOP_BLOCK_REASON,
   UPDATABLE_STATES,
-  WATCHED_STATES,
   assertTransition,
   canTransition,
   checkGraph,
-  decideFollowup,
-  followupOutcome,
   jobsToStart,
-  notificationFor,
-  prNotificationFor,
-  pushModeFor,
-  stackParent,
-  stopDecision,
   waitingUpdates,
   type AgentName,
-  type BranchState,
   type Config,
   type ConfigKey,
-  type Effort,
-  type FollowupDecision,
-  type FollowupOutcome,
   type JobState,
-  type NotificationEvent,
-  type PrEvent,
-  type PrObservation,
-  type PrState,
   type SchedulableJob,
 } from "@openmill/core";
 import {
-  findJob,
   findJobsById,
   getJob,
-  getObservation,
-  getRun,
   insertJob,
-  insertRun,
   latestRun,
   latestRuns,
   listDependencies,
   listJobs,
-  listRuns,
   setDependencies,
   updateJob,
-  updateObservation,
-  updateRun,
   type Db,
   type Job,
   type NextRunRecord,
-  type RestackRecord,
   type Run,
-  type RunResultRecord,
 } from "@openmill/db";
-import { APPROVED_MESSAGE, followupPrompt, restackPrompt, startPrompt } from "./agent/prompt.ts";
-import type { Agent, HookEvent, RunInput } from "./agent/types.ts";
+import { APPROVED_MESSAGE } from "./agent/prompt.ts";
+import type { Agent } from "./agent/types.ts";
 import type { AddAction, AddRequest, JobDetail, JobSummary } from "./api.ts";
 import { writeConfigValue } from "./config-store.ts";
 import { ApiError } from "./errors.ts";
-import {
-  branchState,
-  ensureWorktree,
-  fastForward,
-  fetchBranch,
-  fetchDefaultBranch,
-  git,
-  gitRoot,
-  removeWorktree,
-  withRepoLock,
-} from "./git.ts";
+import { gitRoot } from "./git.ts";
 import type { GitHub } from "./github.ts";
-import { createNotifier, notificationPayload, type Notify } from "./notify.ts";
-import { branchName, jobDir, worktreePath, type Paths } from "./paths.ts";
+import type { MillContext } from "./mill/context.ts";
+import { applyPrEvents, completeFollowup, followUp } from "./mill/followups.ts";
+import { followupState, handleHook, sessionGone } from "./mill/hooks.ts";
+import {
+  capturePath,
+  closeWindow,
+  endRun,
+  fail,
+  findDraft,
+  finish,
+  inSession,
+  transition,
+} from "./mill/lifecycle.ts";
+import { graphFor, launch, repoGraph } from "./mill/session.ts";
+import { createNotifier } from "./notify.ts";
+import { branchName, worktreePath, type Paths } from "./paths.ts";
 import type { Terminal } from "./terminal/types.ts";
 import { PrWatcher } from "./watcher.ts";
 
@@ -95,56 +69,33 @@ export interface MillOptions {
   debug?: (message: string) => void;
 }
 
-const PR_STATE_EVENTS: ReadonlyArray<[PrEvent, JobState]> = [
-  ["merged", "merged"],
-  ["closed", "closed"],
-  ["reopened", "done"],
-];
-
-const NO_PR_REASON = "the agent session ended without a draft PR";
-
-const UNPUSHED_REASON = "the follow-up session ended before its changes were pushed";
-
-const SESSION_OPEN_REASON =
-  "someone is still using the previous session in the job's window; follow-ups start when it stops";
-
 export class Mill {
-  private readonly db: Db;
-  private readonly paths: Paths;
-  private readonly terminal: Terminal;
-  private readonly agents: Record<string, Agent>;
-  private readonly github: GitHub;
-  private readonly hookCommand: string[];
-  private readonly log: (message: string) => void;
-  private readonly notifier: Notify;
+  private readonly ctx: MillContext;
   private readonly watcher: PrWatcher;
-  private readonly preparing = new Set<number>();
-  private readonly staleHeads = new Map<number, string>();
-  private readonly busyRuns = new Set<number>();
-  private config: Config;
   private closed = false;
 
-  constructor(options: MillOptions) {
-    this.db = options.db;
-    this.paths = options.paths;
-    this.config = options.config;
-    this.terminal = options.terminal;
-    this.agents = options.agents;
-    this.github = options.github;
-    this.hookCommand = options.hookCommand;
-    this.log = options.log ?? (() => {});
-    this.notifier = createNotifier(this.log);
+  constructor({ log = () => {}, debug = () => {}, ...options }: MillOptions) {
+    this.ctx = {
+      ...options,
+      log,
+      notifier: createNotifier(log),
+      preparing: new Set(),
+      staleHeads: new Map(),
+      busyRuns: new Set(),
+      schedule: () => this.schedule(),
+    };
     this.watcher = new PrWatcher({
-      db: this.db,
-      github: this.github,
-      config: () => this.config,
-      onChange: (job, events, observation) => this.applyPrEvents(job, events, observation),
-      log: this.log,
-      debug: options.debug ?? (() => {}),
+      db: options.db,
+      github: options.github,
+      config: () => this.ctx.config,
+      onChange: (job, events, observation) => applyPrEvents(this.ctx, job.key, events, observation),
+      log,
+      debug,
     });
   }
 
   async add(request: AddRequest): Promise<Array<{ id: string; action: AddAction }>> {
+    const { db, paths } = this.ctx;
     let repoPath: string;
 
     try {
@@ -164,7 +115,7 @@ export class Mill {
     }
 
     const existing = new Map(
-      listJobs(this.db)
+      listJobs(db)
         .filter((job) => job.repoPath === repoPath)
         .map((job) => [job.id, job]),
     );
@@ -181,7 +132,7 @@ export class Mill {
       throw new ApiError(409, `already started: ${list}. Pass --force to re-queue.`);
     }
 
-    const graph = this.repoGraph(repoPath);
+    const graph = repoGraph(this.ctx, repoPath);
 
     for (const { doc, action } of plan) {
       if (action !== "unchanged") {
@@ -195,18 +146,18 @@ export class Mill {
       throw new ApiError(400, check.error);
     }
 
-    const superseded: Array<{ job: Job; run: Run }> = [];
+    const superseded: Run[] = [];
 
     for (const { job, action } of plan) {
-      const run = job && action === "requeued" ? latestRun(this.db, job.key) : undefined;
+      const run = job && action === "requeued" ? latestRun(db, job.key) : undefined;
 
       if (job && run && SESSION_STATES.includes(job.state as JobState)) {
-        await this.endRun(job, run, { status: "cancelled", reason: "re-queued with --force" });
-        superseded.push({ job, run });
+        await endRun(this.ctx, job, run, { status: "cancelled", reason: "re-queued with --force" });
+        superseded.push(run);
       }
     }
 
-    this.db.transaction((tx) => {
+    db.transaction((tx) => {
       const keys = new Map([...existing].map(([id, job]) => [id, job.key]));
       const touched: Array<{ key: number; dependsOn: string[] }> = [];
 
@@ -226,7 +177,7 @@ export class Mill {
             id: doc.id,
             repoPath,
             branchName: branchName(doc.id),
-            worktreePath: worktreePath(this.paths, repoPath, doc.id),
+            worktreePath: worktreePath(paths, repoPath, doc.id),
             ...fields,
           });
 
@@ -259,8 +210,8 @@ export class Mill {
       }
     });
 
-    for (const { run } of superseded) {
-      await this.closeWindow(run);
+    for (const run of superseded) {
+      await closeWindow(this.ctx, run);
     }
 
     this.schedule();
@@ -269,11 +220,13 @@ export class Mill {
   }
 
   async list(): Promise<JobSummary[]> {
-    await this.detectHandFinished(listJobs(this.db));
+    const { db } = this.ctx;
 
-    const jobs = listJobs(this.db);
+    await this.detectHandFinished(listJobs(db));
+
+    const jobs = listJobs(db);
     const runs = latestRuns(
-      this.db,
+      db,
       jobs.map((job) => job.key),
     );
 
@@ -281,7 +234,7 @@ export class Mill {
   }
 
   async resolve(id: string, repo?: string): Promise<Job> {
-    const matches = findJobsById(this.db, id);
+    const matches = findJobsById(this.ctx.db, id);
 
     if (matches.length === 0) {
       throw new ApiError(404, `no job with id ${id}`);
@@ -307,9 +260,9 @@ export class Mill {
   }
 
   show(job: Job): JobDetail {
-    const run = latestRun(this.db, job.key);
-    const current = getJob(this.db, job.key) ?? job;
-    const capture = run ? this.capturePath(current, run) : undefined;
+    const run = latestRun(this.ctx.db, job.key);
+    const current = getJob(this.ctx.db, job.key) ?? job;
+    const capture = run ? capturePath(this.ctx, current, run) : undefined;
 
     return {
       ...summary(current, run),
@@ -324,19 +277,19 @@ export class Mill {
   }
 
   async open(job: Job): Promise<void> {
-    const blockId = latestRun(this.db, job.key)?.blockId;
+    const blockId = latestRun(this.ctx.db, job.key)?.blockId;
 
     if (!blockId) {
       throw new ApiError(409, `${job.id} has no window`);
     }
 
-    const blocks = await this.terminal.list();
+    const blocks = await this.ctx.terminal.list();
 
     if (!blocks.some((block) => block.blockId === blockId)) {
       throw new ApiError(409, `${job.id}'s window is closed`);
     }
 
-    await this.terminal.focus(blockId);
+    await this.ctx.terminal.focus(blockId);
   }
 
   async cancel(job: Job): Promise<JobState> {
@@ -344,16 +297,16 @@ export class Mill {
       throw new ApiError(409, `${job.id} is ${job.state} and can't be cancelled`);
     }
 
-    const run = latestRun(this.db, job.key);
+    const run = latestRun(this.ctx.db, job.key);
 
     if (run) {
-      await this.endRun(job, run, { status: "cancelled" });
+      await endRun(this.ctx, job, run, { status: "cancelled" });
     }
 
-    updateJob(this.db, job.key, { state: "cancelled", blockedReason: null });
+    transition(this.ctx, job.key, { to: "cancelled", fields: { blockedReason: null } });
 
     if (run) {
-      await this.closeWindow(run);
+      await closeWindow(this.ctx, run);
     }
 
     this.schedule();
@@ -362,12 +315,11 @@ export class Mill {
   }
 
   async clean(): Promise<number> {
-    const open = new Set((await this.terminal.list()).map((block) => block.blockId));
-    const jobs = listJobs(this.db).filter((job) =>
-      CLEANABLE_STATES.includes(job.state as JobState),
-    );
+    const { db, terminal } = this.ctx;
+    const open = new Set((await terminal.list()).map((block) => block.blockId));
+    const jobs = listJobs(db).filter((job) => CLEANABLE_STATES.includes(job.state as JobState));
     const runs = latestRuns(
-      this.db,
+      db,
       jobs.map((job) => job.key),
     );
     let closed = 0;
@@ -376,8 +328,8 @@ export class Mill {
       const run = runs.get(job.key);
 
       if (run?.blockId && open.has(run.blockId)) {
-        await this.endRun(job, run, run.result ?? { status: "done" });
-        await this.closeWindow(run);
+        await endRun(this.ctx, job, run, run.result ?? { status: "done" });
+        await closeWindow(this.ctx, run);
         closed += 1;
       }
     }
@@ -386,13 +338,15 @@ export class Mill {
   }
 
   async requeue(job: Job): Promise<JobState> {
+    const { db } = this.ctx;
+
     if ((await this.detectHandFinished([job])).has(job.key)) {
       return "done";
     }
 
-    const current = getJob(this.db, job.key);
+    const current = getJob(db, job.key);
     const state = current?.state as JobState | undefined;
-    const run = latestRun(this.db, job.key);
+    const run = latestRun(db, job.key);
 
     if (!current || !state || !REQUEUEABLE_STATES.includes(state)) {
       throw new ApiError(
@@ -407,10 +361,14 @@ export class Mill {
       }
 
       if (run) {
-        this.busyRuns.delete(run.id);
+        this.ctx.busyRuns.delete(run.id);
       }
 
-      updateJob(this.db, job.key, { state: "done", blockedReason: null });
+      transition(this.ctx, job.key, {
+        from: ["needs_input"],
+        to: "done",
+        fields: { blockedReason: null },
+      });
       this.schedule();
 
       return "done";
@@ -422,55 +380,26 @@ export class Mill {
         ? { ...resume, gate: "open" as const, message: APPROVED_MESSAGE }
         : resume;
 
-    updateJob(this.db, job.key, { state: "queued", blockedReason: null, nextRun });
+    transition(this.ctx, job.key, {
+      from: REQUEUEABLE_STATES,
+      to: "queued",
+      fields: { blockedReason: null, nextRun },
+    });
     this.schedule();
 
     return "queued";
   }
 
-  async hook(runId: number, event: string, payload: unknown): Promise<unknown> {
-    const run = getRun(this.db, runId);
-    const agent = run ? this.agents[run.agent] : undefined;
-    const parsed = agent?.parseHook(event, payload);
-
-    if (!run || !agent || !parsed) {
-      return null;
-    }
-
-    if (parsed.transcriptPath && parsed.transcriptPath !== run.transcriptPath) {
-      updateRun(this.db, run.id, { transcriptPath: parsed.transcriptPath });
-    }
-
-    const job = getJob(this.db, run.jobKey);
-
-    if (!job || latestRun(this.db, job.key)?.id !== run.id) {
-      return null;
-    }
-
-    switch (parsed.type) {
-      case "stop":
-        return this.onStop(job, run, agent, parsed);
-      case "tool_use":
-        return run.gate
-          ? agent.gateToolUse(parsed, { open: run.gate === "open", branch: job.branchName })
-          : null;
-      case "prompt":
-        this.onPrompt(job, run);
-
-        return null;
-      case "session_end":
-        await this.onSessionEnd(job, run);
-
-        return null;
-    }
+  hook(runId: number, event: string, payload: unknown): Promise<unknown> {
+    return handleHook(this.ctx, runId, event, payload);
   }
 
   getConfig(): Config {
-    return this.config;
+    return this.ctx.config;
   }
 
   async setConfig(key: ConfigKey, value: Config[ConfigKey]): Promise<Config> {
-    this.config = await writeConfigValue(this.paths.config, key, value);
+    this.ctx.config = await writeConfigValue(this.ctx.paths.config, key, value);
 
     if (key === "watch_interval") {
       this.watcher.restart();
@@ -478,11 +407,11 @@ export class Mill {
 
     this.schedule();
 
-    return this.config;
+    return this.ctx.config;
   }
 
   status(): { pid: number; running: number; queued: number } {
-    const jobs = listJobs(this.db);
+    const jobs = listJobs(this.ctx.db);
 
     return {
       pid: process.pid,
@@ -496,13 +425,13 @@ export class Mill {
       return;
     }
 
-    const jobs = listJobs(this.db);
+    const { db } = this.ctx;
+    const jobs = listJobs(db);
     const byKey = new Map(jobs.map((job) => [job.key, job]));
     const repos = Map.groupBy(jobs, (job) => job.repoPath);
-    const starts: Job[] = [];
-    let slots = this.config.concurrency - jobs.filter((job) => job.state === "running").length;
-
-    const edges = listDependencies(this.db);
+    const edges = listDependencies(db);
+    const starts: number[] = [];
+    let slots = this.ctx.config.concurrency - jobs.filter((job) => job.state === "running").length;
 
     for (const repoJobs of repos.values()) {
       const graph = graphFor(repoJobs, byKey, edges);
@@ -520,63 +449,64 @@ export class Mill {
       );
 
       for (const [id, update] of waitingUpdates(graph, states)) {
-        updateJob(this.db, (byId.get(id) as Job).key, update);
+        updateJob(db, (byId.get(id) as Job).key, update);
         states.set(id, { ...(states.get(id) as SchedulableJob), ...update });
       }
 
       for (const id of jobsToStart(graph, states, Math.max(0, slots))) {
-        starts.push(byId.get(id) as Job);
+        starts.push((byId.get(id) as Job).key);
         slots -= 1;
       }
     }
 
-    for (const job of starts) {
-      this.launch(job);
+    for (const key of starts) {
+      launch(this.ctx, key);
     }
 
-    this.followUp();
+    followUp(this.ctx);
     this.watcher.wake();
   }
 
   async reconcile(): Promise<void> {
+    const { db, terminal, log } = this.ctx;
     let alive = new Set<string>();
     let unreachable: string | undefined;
 
     try {
       alive = new Set(
-        (await this.terminal.list()).filter((block) => block.alive).map((block) => block.blockId),
+        (await terminal.list()).filter((block) => block.alive).map((block) => block.blockId),
       );
     } catch (error) {
       unreachable = (error as Error).message;
-      this.log(`listing agent windows failed: ${unreachable}`);
+      log(`listing agent windows failed: ${unreachable}`);
     }
 
-    const jobs = listJobs(this.db).filter((job) => inSession(job));
+    const jobs = listJobs(db).filter((job) => inSession(job));
 
     await Promise.all(
       jobs.map(async (job) => {
-        const run = latestRun(this.db, job.key);
+        const run = latestRun(db, job.key);
         const gone = !run?.blockId || !alive.has(run.blockId);
         const reason = unreachable ?? "its window closed while the server was stopped";
 
         if (run && run.kind !== "feature") {
-          const outcome = await this.followupState(job, run);
+          const outcome = await followupState(this.ctx, job, run);
 
           if (outcome === "done") {
-            await this.completeFollowup(job, run);
+            await completeFollowup(this.ctx, job.key, run);
           } else if (gone) {
-            await this.sessionGone(job, run, outcome, reason);
+            await sessionGone(this.ctx, job, run, outcome, reason);
           }
 
           return;
         }
 
-        const prUrl = await this.findDraft(job);
+        const prUrl = await findDraft(this.ctx, job);
 
         if (prUrl) {
-          this.finish(job.key, prUrl);
+          finish(this.ctx, job.key, prUrl);
         } else if (gone) {
-          await this.fail(job.key, run, reason);
+          await fail(this.ctx, job.key, run, reason);
         }
       }),
     );
@@ -590,368 +520,24 @@ export class Mill {
     await this.watcher.close();
   }
 
-  private launch(job: Job): void {
-    const previous = latestRun(this.db, job.key);
-    const next = job.nextRun;
-    const resume = job.sessionId !== null && (next?.resume ?? true);
-    const run = insertRun(this.db, {
-      jobKey: job.key,
-      agent: job.agent ?? this.config.agent,
-      model: job.model ?? this.config.model ?? null,
-      effort: job.effort ?? this.config.effort,
-      kind: next?.kind ?? "feature",
-      trigger: next?.trigger ?? null,
-      gate: next?.gate ?? null,
-      startSha: next?.startSha ?? null,
-      sessionId: resume ? job.sessionId : randomUUID(),
-      transcriptPath: resume ? previous?.transcriptPath : null,
-    });
-
-    updateJob(this.db, job.key, { state: "running", blockedReason: null, nextRun: null });
-
-    void this.spawn(job, run, previous, resume, next?.message).catch(async (error: unknown) => {
-      if (latestRun(this.db, job.key)?.id === run.id) {
-        await this.fail(
-          job.key,
-          getRun(this.db, run.id),
-          (error as Error).message ?? String(error),
-        );
-      }
-    });
-  }
-
-  private async spawn(
-    job: Job,
-    run: Run,
-    previous: Run | undefined,
-    resume: boolean,
-    message: string | undefined,
-  ): Promise<void> {
-    const agent = this.agents[run.agent];
-
-    if (!agent) {
-      throw new Error(`unknown agent ${run.agent}`);
-    }
-
-    const input = await this.prepare(job, run);
-    const { command, env } = resume
-      ? agent.resume(input, message)
-      : agent.launch(input, this.prompt(job, run, input));
-
-    await agent.trust(job.repoPath);
-
-    const previousBlock = previous?.blockId
-      ? (await this.terminal.list().catch(() => [])).find(
-          (block) => block.blockId === previous.blockId,
-        )
-      : undefined;
-
-    const replace =
-      previousBlock && !(previousBlock.alive && resume) ? previousBlock.blockId : undefined;
-
-    if (previous && !replace) {
-      await this.closeWindow(previous);
-    }
-
-    const blockId = await this.terminal.spawn({
-      label: job.id,
-      cwd: job.worktreePath,
-      command,
-      env: { ...env, OPENMILL_HOME: this.paths.home, OPENMILL_RUN_ID: String(run.id) },
-      replace,
-    });
-
-    updateRun(this.db, run.id, { blockId });
-
-    const current = getJob(this.db, job.key);
-
-    if (current?.state === "running" && latestRun(this.db, job.key)?.id === run.id) {
-      updateJob(this.db, job.key, { sessionId: run.sessionId });
-    } else {
-      await this.closeWindow({ ...run, blockId });
-    }
-  }
-
-  private async onStop(
-    job: Job,
-    run: Run,
-    agent: Agent,
-    event: Extract<HookEvent, { type: "stop" }>,
-  ): Promise<unknown> {
-    this.busyRuns.delete(run.id);
-
-    if (!inSession(job)) {
-      this.leftSession(job);
-
-      return null;
-    }
-
-    let outcome: FollowupOutcome;
-
-    if (run.kind === "feature") {
-      const decision = stopDecision(await this.findDraft(job), event.stopHookActive);
-
-      if (decision.kind === "done") {
-        this.finish(job.key, decision.prUrl);
-
-        return null;
-      }
-
-      outcome = decision.kind;
-    } else {
-      outcome = followupOutcome(
-        await this.branchState(job, run),
-        run.gate === "closed",
-        event.stopHookActive,
-      );
-    }
-
-    switch (outcome) {
-      case "done":
-        await this.completeFollowup(job, run);
-
-        return null;
-      case "awaiting_push":
-        this.awaitPush(job.key);
-
-        return null;
-      case "block":
-        return agent.blockStop(run.kind === "feature" ? STOP_BLOCK_REASON : FOLLOWUP_BLOCK_REASON);
-      case "needs_input": {
-        const transcript = event.transcriptPath ?? run.transcriptPath;
-        const reason =
-          (transcript && (await agent.lastMessage(transcript).catch(() => undefined))) ||
-          (run.kind === "feature"
-            ? "the agent stopped without a draft PR"
-            : "the agent stopped without pushing its changes");
-
-        if (getJob(this.db, job.key)?.state === "running") {
-          updateRun(this.db, run.id, { result: { status: "needs_input", reason } });
-          updateJob(this.db, job.key, { state: "needs_input" });
-          this.notify(job.key, "running", "needs_input", reason);
-          this.schedule();
-        }
-
-        return null;
-      }
-    }
-  }
-
-  private onPrompt(job: Job, run: Run): void {
-    if (job.state === "awaiting_push") {
-      updateRun(this.db, run.id, { gate: "open" });
-    } else if (inSession(job) && job.state === "needs_input") {
-      updateRun(this.db, run.id, { result: null });
-    } else {
-      if (job.state !== "running") {
-        this.busyRuns.add(run.id);
-      }
-
-      return;
-    }
-
-    updateJob(this.db, job.key, { state: "running", blockedReason: null });
-    this.schedule();
-  }
-
-  private async onSessionEnd(job: Job, run: Run): Promise<void> {
-    if (run.endedAt) {
-      return;
-    }
-
-    if (!inSession(job)) {
-      await this.endRun(job, run, run.result ?? { status: "done" });
-      this.leftSession(job);
-
-      return;
-    }
-
-    if (run.kind !== "feature") {
-      const outcome = await this.followupState(job, run);
-
-      if (outcome === "done") {
-        await this.endRun(job, run, { status: "done" });
-        await this.completeFollowup(job, run);
-      } else {
-        await this.sessionGone(job, run, outcome, UNPUSHED_REASON);
-      }
-
-      return;
-    }
-
-    const prUrl = await this.findDraft(job);
-
-    if (prUrl) {
-      await this.endRun(job, run, { status: "done" });
-      this.finish(job.key, prUrl);
-    } else {
-      await this.fail(job.key, run, NO_PR_REASON);
-    }
-  }
-
-  private finish(key: number, prUrl: string): void {
-    const job = getJob(this.db, key);
-
-    if (job && canTransition(job.state as JobState, "done")) {
-      updateJob(this.db, key, { state: "done", prUrl, blockedReason: null });
-      this.schedule();
-    }
-  }
-
-  private async fail(key: number, run: Run | undefined, reason: string): Promise<void> {
-    const job = getJob(this.db, key);
-
-    if (!job || !SESSION_STATES.includes(job.state as JobState)) {
-      return;
-    }
-
-    if (run) {
-      await this.endRun(job, run, { status: "failed", reason });
-    }
-
-    const from = job.state as JobState;
-
-    updateJob(this.db, key, { state: "failed", blockedReason: null });
-    this.notify(key, from, "failed", reason);
-    this.schedule();
-  }
-
-  private async endRun(job: Job, run: Run, result: RunResultRecord): Promise<void> {
-    if (run.blockId) {
-      try {
-        const dir = join(jobDir(this.paths, job.repoPath, job.id), "runs");
-
-        await mkdir(dir, { recursive: true });
-        await writeFile(this.capturePath(job, run), await this.terminal.capture(run.blockId));
-      } catch (error) {
-        this.log(`saving the window of ${job.id} failed: ${String(error)}`);
-      }
-    }
-
-    updateRun(this.db, run.id, { endedAt: run.endedAt ?? new Date(), result });
-  }
-
-  private async closeWindow(run: Run): Promise<void> {
-    if (!run.blockId) {
-      return;
-    }
-
-    await this.terminal
-      .close(run.blockId)
-      .catch((error: unknown) =>
-        this.log(`closing window ${run.blockId} failed: ${String(error)}`),
-      );
-  }
-
-  private async findDraft(job: Job): Promise<string | undefined> {
-    return this.github.findOpenDraft(job.repoPath, job.branchName).catch((error: unknown) => {
-      this.log(`gh pr list for ${job.id} failed: ${String(error)}`);
-
-      return undefined;
-    });
-  }
-
-  private async prepare(job: Job, run: Run): Promise<RunInput> {
-    const dir = jobDir(this.paths, job.repoPath, job.id);
-    const docPath = join(dir, `${job.id}.md`);
-    let projectPath: string | undefined;
-
-    await mkdir(dir, { recursive: true });
-    await writeFile(docPath, job.docSnapshot);
-
-    if (job.projectSnapshot !== null) {
-      projectPath = join(dir, "project.md");
-      await writeFile(projectPath, job.projectSnapshot);
-    }
-
-    const prBaseBranch = await withRepoLock(job.repoPath, async () => {
-      let branches = { baseBranch: job.baseBranch, prBaseBranch: job.prBaseBranch };
-
-      if (!branches.baseBranch || !branches.prBaseBranch) {
-        branches = await this.branchBase(job);
-        updateJob(this.db, job.key, branches);
-      }
-
-      await ensureWorktree(
-        job.repoPath,
-        job.worktreePath,
-        job.branchName,
-        branches.baseBranch as string,
-      );
-
-      return branches.prBaseBranch as string;
-    });
-
-    return {
-      docPath,
-      projectPath,
-      branch: job.branchName,
-      prBaseBranch,
-      model: run.model ?? undefined,
-      effort: run.effort as Effort,
-      sessionId: run.sessionId as string,
-      hookCommand: this.hookCommand,
-      pushGate: run.gate !== null,
-    };
-  }
-
-  private prompt(job: Job, run: Run, input: RunInput): string {
-    const push = run.gate === null;
-
-    if (run.kind === "followup" && run.trigger && job.prUrl) {
-      return followupPrompt(input, job.prUrl, run.trigger, push);
-    }
-
-    if (run.kind === "restack" && job.restack) {
-      return restackPrompt(input, job.restack.base, job.restack.cut, push);
-    }
-
-    return startPrompt(input);
-  }
-
-  private async branchBase(job: Job): Promise<{ baseBranch: string; prBaseBranch: string }> {
-    const graph = this.repoGraph(job.repoPath);
-    const parentOf = (id: string) => {
-      const parentId = stackParent(graph, id);
-
-      return parentId ? findJob(this.db, job.repoPath, parentId) : undefined;
-    };
-    let parent = parentOf(job.id);
-
-    // A merged parent's branch is deleted, so stack on the nearest ancestor that still has one.
-    while (parent?.state === "merged") {
-      parent = parentOf(parent.id);
-    }
-
-    if (parent) {
-      return { baseBranch: parent.branchName, prBaseBranch: parent.branchName };
-    }
-
-    if (job.requestedBase) {
-      return {
-        baseBranch: job.requestedBase,
-        prBaseBranch: job.requestedBase.replace(/^origin\//, ""),
-      };
-    }
-
-    const branch = await fetchDefaultBranch(job.repoPath);
-
-    return { baseBranch: `origin/${branch}`, prBaseBranch: branch };
-  }
-
   private async detectHandFinished(jobs: Job[]): Promise<Set<number>> {
     const candidates = jobs.filter(
       (job) => job.prUrl === null && HAND_OFF_STATES.includes(job.state as JobState),
     );
-    const found = await Promise.all(candidates.map((job) => this.findDraft(job)));
+    const found = await Promise.all(candidates.map((job) => findDraft(this.ctx, job)));
     const moved = new Set<number>();
 
     candidates.forEach((job, index) => {
-      const url = found[index];
-      const current = getJob(this.db, job.key);
+      const prUrl = found[index];
 
-      if (url && current && HAND_OFF_STATES.includes(current.state as JobState)) {
-        updateJob(this.db, job.key, { state: "done", prUrl: url, blockedReason: null });
+      if (
+        prUrl &&
+        transition(this.ctx, job.key, {
+          from: HAND_OFF_STATES,
+          to: "done",
+          fields: { prUrl, blockedReason: null },
+        })
+      ) {
         moved.add(job.key);
       }
     });
@@ -962,387 +548,6 @@ export class Mill {
 
     return moved;
   }
-
-  private applyPrEvents(job: Job, events: PrEvent[], observation: PrObservation): void {
-    this.log(`${job.id} PR events: ${events.join(", ")}`);
-
-    if (!WATCHED_STATES.includes(job.state as JobState)) {
-      return;
-    }
-
-    let state = job.state as JobState;
-    const next = PR_STATE_EVENTS.find(([event]) => events.includes(event))?.[1];
-
-    if (next && canTransition(state, next)) {
-      updateJob(this.db, job.key, { state: next });
-      state = next;
-
-      if (next === "merged") {
-        if (job.prBaseBranch) {
-          this.markDependents(job, { base: job.prBaseBranch, cut: observation.headSha });
-        }
-
-        void this.cleanUpMerged(job);
-      }
-    }
-
-    const ready = events.some(
-      (event) => prNotificationFor(state, event, observation) === "ready_for_review",
-    );
-
-    if (ready && getObservation(this.db, job.key)?.readyNotifiedSha !== observation.headSha) {
-      updateObservation(this.db, job.key, { readyNotifiedSha: observation.headSha });
-      this.send("ready_for_review", job.key, "every check passed");
-    }
-
-    this.schedule();
-  }
-
-  private leftSession(job: Job): void {
-    if (job.state === "needs_input" && job.blockedReason === SESSION_OPEN_REASON) {
-      updateJob(this.db, job.key, { state: "done", blockedReason: null });
-      this.schedule();
-    }
-  }
-
-  private followUp(): void {
-    for (const job of listJobs(this.db)) {
-      if (job.state !== "done" || this.preparing.has(job.key)) {
-        continue;
-      }
-
-      const { restack } = job;
-
-      if (restack) {
-        this.inBackground(job, () => this.restack(job, restack));
-      } else if (this.decide(job).action !== "none") {
-        this.inBackground(job, () => this.prepareFollowup(job));
-      }
-    }
-  }
-
-  private decide(job: Job): FollowupDecision {
-    const row = getObservation(this.db, job.key);
-    const observation =
-      row && row.prUrl === job.prUrl ? { ...row, state: row.state as PrState } : undefined;
-
-    return decideFollowup({
-      state: job.state as JobState,
-      observation,
-      runs: listRuns(this.db, job.key),
-      attempts: this.config.followup_attempts,
-      staleHead: this.staleHeads.get(job.key),
-    });
-  }
-
-  private inBackground(job: Job, task: () => Promise<void>): void {
-    this.preparing.add(job.key);
-
-    void task()
-      .catch((error: unknown) => {
-        this.log(`follow-up for ${job.id} failed: ${String(error)}`);
-        this.needsInput(job.key, (error as { detail?: string }).detail ?? String(error));
-      })
-      .finally(() => {
-        this.preparing.delete(job.key);
-        this.schedule();
-      });
-  }
-
-  private async prepareFollowup(job: Job): Promise<void> {
-    const remoteHead = await withRepoLock(job.repoPath, () => fetchBranch(job));
-    const observed = getObservation(this.db, job.key)?.headSha;
-
-    if (observed && observed !== remoteHead) {
-      this.staleHeads.set(job.key, observed);
-    }
-
-    const decision = this.decide(job);
-
-    if (decision.action === "none") {
-      return;
-    }
-
-    if (decision.action === "exhausted") {
-      this.needsInput(job.key, decision.reason, true);
-
-      return;
-    }
-
-    if (await this.sessionBusy(job)) {
-      this.needsInput(job.key, SESSION_OPEN_REASON);
-
-      return;
-    }
-
-    const synced = await fastForward(job.worktreePath, job.branchName);
-
-    if ("problem" in synced) {
-      this.needsInput(job.key, synced.problem);
-
-      return;
-    }
-
-    const gate = pushModeFor(decision.trigger, this.config) === "wait" ? "closed" : null;
-
-    this.queueRun(job.key, {
-      kind: "followup",
-      trigger: decision.trigger,
-      gate,
-      startSha: synced.head,
-      resume: false,
-    });
-  }
-
-  private async restack(job: Job, { base, cut }: RestackRecord): Promise<void> {
-    const cwd = job.worktreePath;
-
-    if (await this.sessionBusy(job)) {
-      this.needsInput(job.key, SESSION_OPEN_REASON);
-
-      return;
-    }
-
-    const landed = await withRepoLock(job.repoPath, async () => {
-      await fetchBranch(job);
-
-      const synced = await fastForward(job.worktreePath, job.branchName);
-
-      if ("problem" in synced) {
-        this.needsInput(job.key, synced.problem);
-
-        return undefined;
-      }
-
-      try {
-        await git(cwd, ["rebase", "--onto", `origin/${base}`, cut]);
-      } catch {
-        await git(cwd, ["rebase", "--abort"]).catch(() => {});
-
-        return { conflict: true, head: synced.head };
-      }
-
-      try {
-        await git(cwd, ["push", "--force-with-lease", "origin", job.branchName]);
-      } catch (error) {
-        await git(cwd, ["reset", "--hard", synced.head]);
-
-        throw error;
-      }
-
-      return { conflict: false, head: synced.head };
-    });
-
-    if (!landed) {
-      return;
-    }
-
-    if (!landed.conflict) {
-      await this.landRestack(job, landed.head);
-
-      return;
-    }
-
-    if (await this.sessionBusy(job)) {
-      this.needsInput(job.key, SESSION_OPEN_REASON);
-
-      return;
-    }
-
-    this.queueRun(job.key, {
-      kind: "restack",
-      trigger: null,
-      gate: this.config.review_push === "wait" ? "closed" : null,
-      startSha: landed.head,
-      resume: false,
-    });
-  }
-
-  private async landRestack(job: Job, before: string): Promise<void> {
-    const current = getJob(this.db, job.key);
-    const restack = current?.restack;
-
-    if (!current || !restack) {
-      return;
-    }
-
-    if (current.prUrl && current.prBaseBranch !== restack.base) {
-      await this.github.editPrBase(current.repoPath, current.prUrl, restack.base);
-    }
-
-    updateJob(this.db, job.key, {
-      baseBranch: `origin/${restack.base}`,
-      prBaseBranch: restack.base,
-      restack: null,
-    });
-    this.markDependents(current, { base: current.branchName, cut: before });
-  }
-
-  private markDependents(parent: Job, restack: RestackRecord): void {
-    for (const job of listJobs(this.db)) {
-      if (
-        job.repoPath === parent.repoPath &&
-        job.key !== parent.key &&
-        job.prBaseBranch === parent.branchName &&
-        job.state !== "merged" &&
-        job.state !== "cancelled"
-      ) {
-        updateJob(this.db, job.key, { restack });
-      }
-    }
-  }
-
-  private queueRun(key: number, nextRun: NextRunRecord): void {
-    if (getJob(this.db, key)?.state === "done") {
-      updateJob(this.db, key, { state: "queued", nextRun });
-    }
-  }
-
-  private needsInput(key: number, reason: string, exhausted = false): void {
-    if (getJob(this.db, key)?.state !== "done") {
-      return;
-    }
-
-    updateJob(this.db, key, { state: "needs_input", blockedReason: reason });
-    this.notify(key, "done", "needs_input", reason, exhausted);
-  }
-
-  private awaitPush(key: number): void {
-    if (getJob(this.db, key)?.state !== "running") {
-      return;
-    }
-
-    updateJob(this.db, key, { state: "awaiting_push" });
-    this.notify(key, "running", "awaiting_push", null);
-    this.schedule();
-  }
-
-  private async completeFollowup(job: Job, run: Run): Promise<void> {
-    if (run.kind === "restack" && run.startSha) {
-      try {
-        await this.landRestack(job, run.startSha);
-      } catch (error) {
-        this.log(`retargeting ${job.id} after its restack failed: ${String(error)}`);
-      }
-    }
-
-    this.finish(job.key, job.prUrl as string);
-  }
-
-  private async sessionGone(
-    job: Job,
-    run: Run,
-    outcome: FollowupOutcome,
-    reason: string,
-  ): Promise<void> {
-    if (outcome === "awaiting_push" && getJob(this.db, job.key)?.state === "running") {
-      await this.endRun(job, run, { status: "done" });
-      this.awaitPush(job.key);
-    } else {
-      await this.fail(job.key, run, reason);
-    }
-  }
-
-  private async followupState(job: Job, run: Run): Promise<FollowupOutcome> {
-    try {
-      return followupOutcome(await this.branchState(job, run), run.gate === "closed", true);
-    } catch (error) {
-      this.log(`reading the branch of ${job.id} failed: ${String(error)}`);
-
-      return "needs_input";
-    }
-  }
-
-  private async branchState(job: Job, run: Run): Promise<BranchState> {
-    await withRepoLock(job.repoPath, () =>
-      git(job.worktreePath, ["fetch", "origin", job.branchName]),
-    ).catch((error: unknown) => this.log(`fetching ${job.branchName} failed: ${String(error)}`));
-
-    return branchState(job.worktreePath, job.branchName, run.startSha);
-  }
-
-  private async sessionBusy(job: Job): Promise<boolean> {
-    const run = latestRun(this.db, job.key);
-
-    if (!run?.blockId || !this.busyRuns.has(run.id)) {
-      return false;
-    }
-
-    return (await this.terminal.list()).some(
-      (block) => block.blockId === run.blockId && block.alive,
-    );
-  }
-
-  private async cleanUpMerged(job: Job): Promise<void> {
-    try {
-      await withRepoLock(job.repoPath, () =>
-        removeWorktree(job.repoPath, job.worktreePath, job.branchName),
-      );
-    } catch (error) {
-      this.log(`cleaning up merged job ${job.id} failed: ${String(error)}`);
-    }
-  }
-
-  private notify(
-    key: number,
-    from: JobState,
-    to: JobState,
-    reason: string | null,
-    exhausted = false,
-  ): void {
-    const event = notificationFor(from, to, exhausted);
-
-    if (event) {
-      this.send(event, key, reason);
-    }
-  }
-
-  private send(event: NotificationEvent, key: number, reason: string | null): void {
-    const job = getJob(this.db, key);
-
-    if (!job) {
-      return;
-    }
-
-    try {
-      this.notifier(notificationPayload(event, job, reason), this.config);
-    } catch (error) {
-      this.log(`notification for ${job.id} failed: ${String(error)}`);
-    }
-  }
-
-  private capturePath(job: Job, run: Run): string {
-    return join(jobDir(this.paths, job.repoPath, job.id), "runs", `${run.id}.txt`);
-  }
-
-  private repoGraph(repoPath: string): Map<string, string[]> {
-    const jobs = listJobs(this.db);
-
-    return graphFor(
-      jobs.filter((job) => job.repoPath === repoPath),
-      new Map(jobs.map((job) => [job.key, job])),
-      listDependencies(this.db),
-    );
-  }
-}
-
-function graphFor(
-  repoJobs: Job[],
-  byKey: ReadonlyMap<number, Job>,
-  edges: Array<[number, number]>,
-): Map<string, string[]> {
-  const graph = new Map<string, string[]>(repoJobs.map((job) => [job.id, []]));
-
-  for (const [jobKey, dependsOnKey] of edges) {
-    const job = byKey.get(jobKey);
-    const dep = byKey.get(dependsOnKey);
-
-    if (job && dep && graph.has(job.id)) {
-      graph.get(job.id)?.push(dep.id);
-    }
-  }
-
-  return graph;
 }
 
 type PlannedAction = AddAction | "rejected";
@@ -1393,11 +598,4 @@ function resumeOf(run: Run): NextRunRecord {
     startSha: run.startSha,
     resume: true,
   };
-}
-
-function inSession(job: Job): boolean {
-  return (
-    SESSION_STATES.includes(job.state as JobState) &&
-    !(job.state === "needs_input" && job.blockedReason !== null)
-  );
 }
