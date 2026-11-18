@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "./client.ts";
 import {
   jobDependencies,
@@ -98,8 +98,8 @@ export function latestRuns(db: Queryable, jobKeys: number[]): Map<number, Run> {
   return latest;
 }
 
-export function unfinishedRuns(db: Queryable): Run[] {
-  return db.select().from(runs).where(isNull(runs.endedAt)).orderBy(asc(runs.id)).all();
+export function getRun(db: Queryable, id: number): Run | undefined {
+  return db.select().from(runs).where(eq(runs.id, id)).get();
 }
 
 export function getObservation(db: Queryable, jobKey: number): PrObservationRow | undefined {

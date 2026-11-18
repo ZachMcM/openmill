@@ -59,6 +59,12 @@ async function checkPrerequisites(): Promise<{ claude: boolean }> {
     }
   }
 
+  if (!(await hasCommand("rex", ["version"]))) {
+    throw new Error(
+      "rex isn't installed or isn't on PATH. openmill runs every agent in a Rex window.",
+    );
+  }
+
   if (!(await run("gh", ["auth", "status"])).ok) {
     p.log.warn(`gh isn't signed in. Run ${pc.bold("gh auth login")} before queuing jobs.`);
   }
@@ -67,7 +73,7 @@ async function checkPrerequisites(): Promise<{ claude: boolean }> {
 
   if (!claude) {
     p.log.warn(
-      "The claude CLI isn't on PATH, so the plugin step is skipped and resume commands won't work. Headless runs still work.",
+      "The claude CLI isn't on PATH, so the plugin step is skipped. Install it before queuing jobs.",
     );
   }
 
@@ -98,37 +104,14 @@ async function installGlobal(): Promise<string | undefined> {
   return pkg.version;
 }
 
-async function stopRunningServer(options: InstallOptions): Promise<void> {
-  const title = "Stopping the old server";
-  const client = localClient();
-  const status = await serverStatus(client);
+async function stopRunningServer(): Promise<void> {
+  await step("Stopping the old server", async () => {
+    const client = localClient();
 
-  if (!status) {
-    await step(title, async () => "not running");
-
-    return;
-  }
-
-  if ((status.running ?? 0) > 0) {
-    const stop =
-      interactive(options) &&
-      answer(
-        await p.confirm({
-          message: `${status.running} jobs are running. Stop the server anyway? Their runs will be aborted.`,
-          initialValue: false,
-        }),
-      );
-
-    if (!stop) {
-      p.log.warn(
-        `Left the server running. Run ${pc.bold("openmill server stop")} once its jobs finish.`,
-      );
-
-      return;
+    if (!(await serverStatus(client))) {
+      return "not running";
     }
-  }
 
-  await step(title, async () => {
     await stopServer(client);
 
     return "stopped";
@@ -175,7 +158,7 @@ async function promptConfig(path: string): Promise<void> {
     await p.select({
       message: "Which model should agents use?",
       options: [
-        { value: DEFAULT_MODEL, label: "Harness default" },
+        { value: DEFAULT_MODEL, label: "Agent default" },
         ...custom,
         ...MODELS,
         { value: OTHER_MODEL, label: "Other", hint: "type a model id" },
@@ -236,13 +219,16 @@ export async function install(options: InstallOptions): Promise<void> {
       });
     }
 
-    await stopRunningServer(options);
+    await stopRunningServer();
 
     if (interactive(options)) {
       await promptConfig(paths.config);
     }
 
-    p.note(`openmill add docs/feature.md\nopenmill ls`, "Next steps");
+    p.note(
+      "openmill add docs/feature.md\nopenmill ls\n\nThe first job's window shows Claude Code's Bypass Permissions warning.\nRun openmill open <id> and accept it once.",
+      "Next steps",
+    );
     p.outro("openmill is installed");
   } catch (error) {
     if (error instanceof Cancelled) {

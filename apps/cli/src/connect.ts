@@ -3,7 +3,7 @@ import { mkdirSync, openSync } from "node:fs";
 import { resolvePaths } from "@openmill/server";
 import { createClient, type Client } from "@openmill/server/client";
 import pkg from "../package.json" with { type: "json" };
-import { command, spin, warn } from "./ui.ts";
+import { spin } from "./ui.ts";
 
 const TIMEOUT_MS = 10_000;
 
@@ -58,15 +58,6 @@ export async function connect(): Promise<Client> {
       return client;
     }
 
-    if ((status.running ?? 0) > 0) {
-      warn(
-        `the server is running openmill ${status.version ?? "(unknown)"}, not ${pkg.version}. ` +
-          `Run ${command("openmill server stop")} once its jobs finish.`,
-      );
-
-      return client;
-    }
-
     await spin("restarting the openmill server", () => stopServer(client));
   }
 
@@ -85,7 +76,6 @@ async function start(client: Client): Promise<Client> {
     {
       detached: true,
       stdio: ["ignore", log, log],
-      windowsHide: true,
     },
   );
 

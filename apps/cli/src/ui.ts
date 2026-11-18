@@ -6,7 +6,6 @@ const STATE_COLORS: Record<JobState, (text: string) => string> = {
   queued: pc.blue,
   running: pc.cyan,
   needs_input: pc.yellow,
-  paused: pc.magenta,
   done: pc.green,
   failed: pc.red,
   blocked: pc.yellow,
@@ -25,10 +24,6 @@ export function warn(message: string): void {
 
 export function fail(message: string): void {
   console.error(`${pc.red("error:")} ${message}`);
-}
-
-export function command(text: string): string {
-  return pc.bold(text);
 }
 
 export async function spin<T>(text: string, task: () => Promise<T>): Promise<T> {

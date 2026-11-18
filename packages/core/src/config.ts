@@ -1,12 +1,12 @@
-export const HARNESSES = ["claude"] as const;
+export const AGENTS = ["claude"] as const;
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 
-export type HarnessName = (typeof HARNESSES)[number];
+export type AgentName = (typeof AGENTS)[number];
 export type Effort = (typeof EFFORTS)[number];
 
 export interface Config {
   concurrency: number;
-  harness: HarnessName;
+  agent: AgentName;
   model?: string;
   effort: Effort;
   notify_desktop: boolean;
@@ -17,7 +17,7 @@ export interface Config {
 
 export const CONFIG_KEYS = [
   "concurrency",
-  "harness",
+  "agent",
   "model",
   "effort",
   "notify_desktop",
@@ -30,7 +30,7 @@ export type ConfigKey = (typeof CONFIG_KEYS)[number];
 
 export const DEFAULT_CONFIG: Config = {
   concurrency: 2,
-  harness: "claude",
+  agent: "claude",
   effort: "medium",
   notify_desktop: true,
   watch_interval: 120,
@@ -52,7 +52,7 @@ function parseOneOf<T extends string>(name: string, values: readonly T[]) {
       : { ok: false, error: `${name} must be one of ${values.join(", ")}` };
 }
 
-export const parseHarness = parseOneOf("harness", HARNESSES);
+export const parseAgent = parseOneOf("agent", AGENTS);
 export const parseEffort = parseOneOf("effort", EFFORTS);
 
 export function parseModel(value: string): ParsedValue<string> {
@@ -70,8 +70,8 @@ export function parseConfigValue(key: ConfigKey, value: string): ParsedValue<Con
         ? { ok: true, value: number }
         : { ok: false, error: "concurrency must be a positive integer" };
     }
-    case "harness":
-      return parseHarness(value);
+    case "agent":
+      return parseAgent(value);
     case "model":
       return parseModel(value);
     case "effort":

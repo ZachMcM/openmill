@@ -1,0 +1,9 @@
+{"type":"user","message":{"role":"user","content":"/openmill:autonomous-feature-pr /jobs/login.md"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Reading the design doc."}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"..."}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"","signature":"x"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Should sessions expire after 30 days or never?"}]}}
+{"type":"user","message":{"role":"user","content":"Stop hook feedback:\nOpen the draft PR, or ask your question as a message and stop."}}
+{"type":"system","subtype":"stop_hook_summary"}
+{"type":"last-prompt"}

@@ -1,7 +1,6 @@
 import { exec, execFile } from "node:child_process";
 import type { Config, NotificationEvent } from "@openmill/core";
 import type { Job } from "@openmill/db";
-import { resumeCommand } from "./resume.ts";
 
 export interface NotificationPayload {
   event: NotificationEvent;
@@ -10,7 +9,7 @@ export interface NotificationPayload {
   state: string;
   reason: string | null;
   pr_url: string | null;
-  resume: string | null;
+  open: string;
 }
 
 export type Notify = (payload: NotificationPayload, config: Config) => void;
@@ -24,17 +23,6 @@ const EVENT_LABELS: Record<NotificationEvent, string> = {
   ready_for_review: "ready for review",
 };
 
-// Toasts only show for a registered AppUserModelID, so borrow the one Windows PowerShell ships with.
-const WINDOWS_TOAST_SCRIPT = [
-  "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null",
-  "$template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)",
-  "$text = $template.GetElementsByTagName('text')",
-  "$text.Item(0).AppendChild($template.CreateTextNode($env:OPENMILL_NOTIFY_TITLE)) | Out-Null",
-  "$text.Item(1).AppendChild($template.CreateTextNode($env:OPENMILL_NOTIFY_BODY)) | Out-Null",
-  "$toast = [Windows.UI.Notifications.ToastNotification]::new($template)",
-  "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe').Show($toast)",
-].join("; ");
-
 export function notificationPayload(
   event: NotificationEvent,
   job: Job,
@@ -47,7 +35,7 @@ export function notificationPayload(
     state: job.state,
     reason,
     pr_url: job.prUrl,
-    resume: job.sessionId ? resumeCommand(job.worktreePath, job.sessionId) : null,
+    open: `openmill open ${job.id}`,
   };
 }
 
@@ -56,12 +44,14 @@ export function createNotifier(log: (message: string) => void): Notify {
 
   function desktop(payload: NotificationPayload): void {
     const title = `openmill: ${payload.job} ${EVENT_LABELS[payload.event]}`;
+    const hint = `Run ${payload.open}.`;
+    const limit = BODY_LIMIT - hint.length - 1;
     const reason = payload.reason?.replace(/\s+/g, " ").trim() ?? "";
-    const body =
-      reason.length > BODY_LIMIT ? `${reason.slice(0, BODY_LIMIT - 1).trimEnd()}…` : reason;
-    const { command, args, env } = desktopCommand(title, body);
+    const clipped = reason.length > limit ? `${reason.slice(0, limit - 1).trimEnd()}…` : reason;
+    const body = clipped ? `${clipped} ${hint}` : hint;
+    const { command, args } = desktopCommand(title, body);
 
-    execFile(command, args, { env: { ...process.env, ...env } }, (error) => {
+    execFile(command, args, (error) => {
       if (!error) {
         return;
       }
@@ -100,32 +90,22 @@ export function createNotifier(log: (message: string) => void): Notify {
   };
 }
 
-function desktopCommand(
-  title: string,
-  body: string,
-): { command: string; args: string[]; env?: Record<string, string> } {
-  switch (process.platform) {
-    case "darwin":
-      return {
-        command: "osascript",
-        args: [
-          "-e",
-          "on run argv",
-          "-e",
-          "display notification (item 2 of argv) with title (item 1 of argv)",
-          "-e",
-          "end run",
-          title,
-          body,
-        ],
-      };
-    case "win32":
-      return {
-        command: "powershell",
-        args: ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_TOAST_SCRIPT],
-        env: { OPENMILL_NOTIFY_TITLE: title, OPENMILL_NOTIFY_BODY: body },
-      };
-    default:
-      return { command: "notify-send", args: ["--", title, body] };
+function desktopCommand(title: string, body: string): { command: string; args: string[] } {
+  if (process.platform === "darwin") {
+    return {
+      command: "osascript",
+      args: [
+        "-e",
+        "on run argv",
+        "-e",
+        "display notification (item 2 of argv) with title (item 1 of argv)",
+        "-e",
+        "end run",
+        title,
+        body,
+      ],
+    };
   }
+
+  return { command: "notify-send", args: ["--", title, body] };
 }

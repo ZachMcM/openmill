@@ -11,12 +11,8 @@ concurrency:
 
 jobs:
   check:
-    name: Check (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
+    name: Check
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -34,7 +30,6 @@ jobs:
       - run: pnpm build
 
       - name: Smoke test the packed CLI
-        shell: bash
         run: |
           pnpm --filter openmill pack --pack-destination "$RUNNER_TEMP"
           npm install -g "$RUNNER_TEMP"/openmill-*.tgz

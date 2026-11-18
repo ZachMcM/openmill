@@ -72,15 +72,15 @@ describe("scheduling", () => {
     );
   });
 
-  it("leaves jobs waiting on a paused dependency queued", () => {
+  it("leaves jobs waiting on a running dependency queued", () => {
     expect(
-      waitingUpdates(chain, jobs({ a: "paused", b: "queued", c: "queued", d: "queued" })).size,
+      waitingUpdates(chain, jobs({ a: "running", b: "queued", c: "queued", d: "queued" })).size,
     ).toBe(0);
   });
 
   it("treats a dependency with a verified PR as satisfied even while it runs again", () => {
     expect(jobsToStart(chain, jobs({ a: "running", b: "queued" }, ["a"]), 1)).toEqual(["b"]);
-    expect(jobsToStart(chain, jobs({ a: "paused", b: "queued" }, ["a"]), 1)).toEqual(["b"]);
+    expect(jobsToStart(chain, jobs({ a: "needs_input", b: "queued" }, ["a"]), 1)).toEqual(["b"]);
     expect(jobsToStart(chain, jobs({ a: "merged", b: "queued" }), 1)).toEqual(["b"]);
     expect(waitingUpdates(chain, jobs({ a: "failed", b: "queued" }, ["a"])).size).toBe(0);
   });

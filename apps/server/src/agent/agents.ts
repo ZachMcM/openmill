@@ -1,8 +1,14 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentDefinition } from "@anthropic-ai/claude-agent-sdk";
 import { REVIEW_AGENTS, claudeAgentsDir } from "@openmill/assets";
 import { splitFrontmatter } from "@openmill/core";
+
+interface AgentDefinition {
+  description: string;
+  prompt: string;
+  tools?: string[];
+  model?: string;
+}
 
 export function loadClaudeAgents(): Record<string, AgentDefinition> {
   const agents: Record<string, AgentDefinition> = {};

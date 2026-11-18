@@ -8,9 +8,9 @@ describe("notificationFor", () => {
     expect(notificationFor("running", "failed")).toBe("failed");
   });
 
-  it("stays quiet for blocked, paused, and other transitions", () => {
+  it("stays quiet for blocked and other transitions", () => {
     expect(notificationFor("queued", "blocked")).toBeNull();
-    expect(notificationFor("running", "paused")).toBeNull();
+    expect(notificationFor("needs_input", "running")).toBeNull();
     expect(notificationFor("running", "done")).toBeNull();
     expect(notificationFor("needs_input", "queued")).toBeNull();
     expect(notificationFor("failed", "failed")).toBeNull();
@@ -42,7 +42,7 @@ describe("prNotificationFor", () => {
   it("says a done job is ready for review when every check passed", () => {
     expect(prNotificationFor("done", "checks_finished", observation)).toBe("ready_for_review");
     expect(prNotificationFor("done", "checks_finished", failing)).toBeNull();
-    expect(prNotificationFor("paused", "checks_finished", observation)).toBeNull();
+    expect(prNotificationFor("closed", "checks_finished", observation)).toBeNull();
     expect(prNotificationFor("done", "head_moved", observation)).toBeNull();
   });
 });
