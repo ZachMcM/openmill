@@ -1,0 +1,3 @@
+interface:
+  display_name: "Design Doc"
+  short_description: "Write a settled plan as an openmill design doc"

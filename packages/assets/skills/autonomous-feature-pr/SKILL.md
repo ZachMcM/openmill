@@ -24,6 +24,17 @@ The doc is the spec. Derive acceptance criteria from its requirements and build 
 
 Do not edit the design doc, and do not commit it unless it was already tracked or the user asks. Reference it in the PR description.
 
+### Dependencies
+
+A markdown design doc may have YAML frontmatter with `depends_on`, a path or list of paths to other design docs, relative to the doc. This change builds on those docs, so read them too.
+
+If you were told which branch to work on and which branch to open the PR against, do that and skip the rest of this section. Otherwise, pick the base from the nearest parent doc:
+
+- If the parent's work is already merged into the default branch, start from the default branch as usual.
+- If the parent has an open PR, start from that PR's branch and open your draft PR against it, so your PR shows only this change. Look for the PR by the parent's frontmatter `id` and title. openmill names its branches `openmill/<id>`.
+- If the parent has no PR and isn't merged, stop and tell the user. The code this change builds on doesn't exist yet.
+- If you can't tell which of these applies, ask the user.
+
 ## Implement and review
 
 Work through the acceptance criteria in small, coherent changes. Run the repository's required checks and any focused checks that cover the changed behavior. Review the diff for accidental files, secrets, unrelated edits, and compatibility with local instructions.
@@ -50,6 +61,6 @@ Before you write the PR, find the repository's rules for PR titles and descripti
 
 Write the title and description to follow those rules, including required sections, checklists, title formats such as Conventional Commits, and linked issues. Fill in every section a template asks for instead of deleting it. If a section doesn't apply, say so in it. Before you open the PR, check the title and body against each rule you found. If the repository has no rules, write a concise title and a description that states the behavior, implementation, and checks run.
 
-Push the feature branch and open a draft PR against the same default branch used as the base, for example with `gh pr create --draft`. Do not mark the PR ready for review, merge, deploy, or change repository settings.
+Push the feature branch and open a draft PR against the branch you started from, for example with `gh pr create --draft --base <branch>`. That's the default branch unless a dependency or the user's instructions gave you another base. Do not mark the PR ready for review, merge, deploy, or change repository settings.
 
 Confirm the PR exists, is a draft, and capture its URL. Report the work as done only after the branch is pushed, the draft PR is open, and you have its URL. If permissions, credentials, CI requirements, or remote state prevent publication, keep the local work and commits, and report the exact blocker and next action.
