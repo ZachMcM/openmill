@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 
 export interface RunResult {
   ok: boolean;
@@ -30,4 +30,12 @@ export async function runOrThrow(command: string, args: string[]): Promise<strin
 
 export async function hasCommand(command: string, versionArgs = ["--version"]): Promise<boolean> {
   return (await run(command, versionArgs)).ok;
+}
+
+export function runInherited(command: string, args: string[]): Promise<number> {
+  return new Promise((resolve, reject) => {
+    spawn(command, args, { stdio: "inherit" })
+      .on("error", reject)
+      .on("close", (code) => resolve(code ?? 1));
+  });
 }
