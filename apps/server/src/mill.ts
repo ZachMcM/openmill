@@ -26,6 +26,7 @@ import {
   listJobs,
   setDependencies,
   updateJob,
+  updateRun,
   type Db,
   type Job,
   type NextRunRecord,
@@ -81,7 +82,6 @@ export class Mill {
       notifier: createNotifier(log),
       preparing: new Set(),
       staleHeads: new Map(),
-      busyRuns: new Set(),
       schedule: () => this.schedule(),
     };
     this.watcher = new PrWatcher({
@@ -368,7 +368,7 @@ export class Mill {
       }
 
       if (run) {
-        this.ctx.busyRuns.delete(run.id);
+        updateRun(db, run.id, { busy: false });
       }
 
       transition(this.ctx, job.key, {

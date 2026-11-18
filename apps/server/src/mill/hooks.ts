@@ -91,7 +91,7 @@ async function onStop(
   agent: Agent,
   event: Extract<HookEvent, { type: "stop" }>,
 ): Promise<unknown> {
-  ctx.busyRuns.delete(run.id);
+  updateRun(ctx.db, run.id, { busy: false });
 
   if (!inSession(job)) {
     leftSession(ctx, job.key);
@@ -155,7 +155,7 @@ function onPrompt(ctx: MillContext, job: Job, run: Run): void {
     updateRun(ctx.db, run.id, { result: null });
   } else {
     if (job.state !== "running") {
-      ctx.busyRuns.add(run.id);
+      updateRun(ctx.db, run.id, { busy: true });
     }
 
     return;
