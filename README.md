@@ -3,7 +3,8 @@
 A local software factory that turns markdown design docs into pull requests.
 
 > [!WARNING]
-> openmill is in early development. Nothing below works yet.
+> openmill is in early development. Commands, config keys, and job states can change between
+> minor versions.
 
 Each design doc becomes one PR. Docs declare their dependencies in frontmatter, so openmill can
 run independent docs in parallel and hold dependent ones until their predecessors land. Agents
@@ -62,8 +63,16 @@ openmill config set concurrency 3
 openmill config unset model       # back to the default
 openmill config set notify_command "curl -s -d @- ntfy.sh/my-topic"  # JSON payload on stdin
 openmill config set trusted_bots "coderabbitai[bot],copilot-pull-request-reviewer[bot]"
+openmill config list
 openmill server status
+openmill server stop
 ```
+
+`openmill add` takes files or directories. For a directory, it queues every `.md` file under it
+that has an `id`, skips files without one, and pulls in each doc's dependencies even when they live
+elsewhere. Queuing a doc that is still `queued` or `blocked` updates it. A doc that already started
+is rejected unless you pass `--force`, which cancels its session and queues it from scratch.
+`--base`, `--agent`, `--model`, and `--effort` override the config for the docs in that call.
 
 The first command that needs the server starts it in the background. State lives in
 `~/.openmill`, or in `OPENMILL_HOME` when it's set.
@@ -87,13 +96,118 @@ when the PR does. Merging removes the job's worktree and local branch. Reviews a
 count when they come from the repo's owners, members, or collaborators, or from a login in
 `trusted_bots`. Set `OPENMILL_DEBUG=1` before the server starts to log the ones it ignores.
 
+### Follow-ups
+
+When a trusted review leaves new unresolved threads on a job's PR, or its CI finishes with a
+failing check, the job goes back in the queue as a follow-up. The follow-up starts a fresh
+`claude` session in the job's window with the `address-pr-feedback` skill, which fixes the code,
+replies to each thread, and pushes. The skill works by hand on any PR too.
+
+Pushes from follow-ups are gated by `review_push` and `ci_push`. With `wait`, the session commits
+and stops, and the job moves to `awaiting_push` with a notification. Read the diff in the window,
+then reply there or run `openmill requeue <id>` to let it push and post its replies. With `auto`,
+it pushes as soon as it's done. By default review follow-ups wait and CI follow-ups push.
+
+If `followup_attempts` runs in a row (3 by default) fail to fix the same threads and checks, the
+job moves to `needs_input` and you get a notification. `openmill requeue <id>` tries again.
+
+### Stacks
+
+A job whose dependencies all have PRs branches from its parent's branch and opens its PR against
+it, so a chain of docs becomes a stack of PRs. It doesn't wait for the parent to merge. When a
+dependency is `failed`, `needs_input`, `cancelled`, or `closed`, the jobs that depend on it are
+`blocked` until it recovers.
+
+When a parent PR merges, openmill rebases each child onto the parent's base, force-pushes with a
+lease, and retargets the child's PR. It works one level of the stack at a time. A rebase that
+conflicts starts a restack run, where the agent resolves the conflicts and follows the same push
+gate as review follow-ups.
+
+### Job states
+
+| State           | Meaning                                                                  |
+| --------------- | ------------------------------------------------------------------------ |
+| `queued`        | Waiting for a free slot or for its dependencies to open PRs              |
+| `blocked`       | A dependency failed, needs input, was cancelled, or had its PR closed    |
+| `running`       | An agent session is working                                              |
+| `needs_input`   | The agent stopped to ask something. Answer in the window                 |
+| `awaiting_push` | A gated follow-up committed changes. Reply or `requeue` to push them     |
+| `done`          | The draft PR is open and the server is watching it                       |
+| `failed`        | The session ended without a PR. `requeue` resumes it                     |
+| `merged`        | The PR merged                                                            |
+| `closed`        | The PR closed without merging. Reopening it moves the job back to `done` |
+| `cancelled`     | You ran `openmill cancel`                                                |
+
+### Notifications
+
+openmill sends a notification when a job needs input, fails, has a follow-up ready to push, runs
+out of follow-up attempts, or has a PR whose checks all passed. Desktop notifications use
+`osascript` on macOS and `notify-send` on Linux. Turn them off with
+`openmill config set notify_desktop false`.
+
+`notify_command` runs through the shell with a JSON payload on stdin and a 10 second timeout:
+
+```json
+{
+  "event": "needs_input",
+  "job": "login",
+  "repo": "/Users/me/src/app",
+  "state": "needs_input",
+  "reason": "Should sessions expire after 30 days or 90?",
+  "pr_url": null,
+  "open": "openmill open login"
+}
+```
+
+`event` is one of `needs_input`, `failed`, `ready_for_review`, `followup_ready`, or
+`followups_exhausted`.
+
 ## Design doc format
 
-<!-- TODO: frontmatter fields, the project doc, how dependencies are resolved -->
+A design doc is a markdown file with YAML frontmatter. openmill only reads the frontmatter. The
+agent reads the whole file.
+
+```markdown
+---
+id: login
+depends_on:
+  - ./sessions.md
+project: ../auth
+---
+
+# Login
+
+Add email and password login on top of the session store from sessions.md.
+```
+
+- `id` is required. It names the job, the branch, and the worktree, so it can only use letters,
+  digits, `.`, `_`, and `-`, and can't end in `.lock`. Ids are unique per repo.
+- `depends_on` is a path or a list of paths to other design docs, relative to this one. A cycle or
+  a dependency without an `id` fails the whole `add`.
+- `project` is a folder, relative to this doc, with a `README.md` or `index.md` that gives the
+  agent background shared across several docs.
+
+openmill snapshots each doc when you queue it. Editing the file afterward changes nothing until
+you run `openmill add` again.
 
 ## Configuration
 
-<!-- TODO: policies, profiles, phases, and config layering -->
+Config lives in `~/.openmill/config.json`. Read and change it with `openmill config get`, `set`,
+`unset`, and `list`, which work while jobs run.
+
+| Key                 | Default  | Meaning                                                     |
+| ------------------- | -------- | ----------------------------------------------------------- |
+| `concurrency`       | `2`      | Jobs that can run at once. `needs_input` jobs don't count   |
+| `agent`             | `claude` | The coding agent                                            |
+| `model`             | unset    | Model passed to the agent. Unset uses the agent's default   |
+| `effort`            | `medium` | `low`, `medium`, `high`, `xhigh`, or `max`                  |
+| `notify_desktop`    | `true`   | Send desktop notifications                                  |
+| `notify_command`    | unset    | Shell command that gets each notification as JSON on stdin  |
+| `watch_interval`    | `120`    | Seconds between GitHub polls for open PRs. At least 30      |
+| `trusted_bots`      | empty    | Comma-separated bot logins whose reviews count              |
+| `review_push`       | `wait`   | `wait` or `auto` for pushes from review follow-ups          |
+| `ci_push`           | `auto`   | `wait` or `auto` for pushes from CI follow-ups              |
+| `followup_attempts` | `3`      | Follow-up runs on the same problem before the job needs you |
 
 ## Supported agents
 
@@ -115,7 +229,7 @@ pnpm build
 | `apps/server`     | `@openmill/server` | The background daemon                                                |
 | `packages/core`   | `@openmill/core`   | Design doc parsing, the dependency graph, and the task state machine |
 | `packages/db`     | `@openmill/db`     | SQLite schema and queries                                            |
-| `packages/assets` | `@openmill/assets` | The workflow skill and review subagents that workers run             |
+| `packages/assets` | `@openmill/assets` | The workflow skills and verifier agents that sessions run            |
 
 ### Releasing
 
