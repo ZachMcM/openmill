@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import type { BranchState } from "@openmill/core";
 import { exec } from "./exec.ts";
 
 const repoLocks = new Map<string, Promise<unknown>>();
@@ -75,4 +76,69 @@ export async function removeWorktree(repo: string, path: string, branch: string)
   if (await branchExists(repo, branch)) {
     await exec("git", ["branch", "-D", branch], repo);
   }
+}
+
+export async function fetchBranch(job: {
+  repoPath: string;
+  worktreePath: string;
+  branchName: string;
+  baseBranch: string | null;
+}): Promise<string> {
+  await ensureWorktree(
+    job.repoPath,
+    job.worktreePath,
+    job.branchName,
+    job.baseBranch ?? job.branchName,
+  );
+  await git(job.worktreePath, ["fetch", "origin"]);
+
+  return git(job.worktreePath, ["rev-parse", `origin/${job.branchName}`]);
+}
+
+export async function fastForward(
+  worktree: string,
+  branch: string,
+): Promise<{ head: string } | { problem: string }> {
+  const remote = `origin/${branch}`;
+
+  if (await isDirty(worktree)) {
+    return { problem: "the worktree has uncommitted changes" };
+  }
+
+  const [ahead = 0, behind = 0] = (
+    await git(worktree, ["rev-list", "--left-right", "--count", `HEAD...${remote}`])
+  )
+    .split(/\s+/)
+    .map(Number);
+
+  if (ahead > 0 && behind > 0) {
+    return { problem: `the branch has diverged from ${remote}` };
+  }
+
+  await git(worktree, ["merge", "--ff-only", remote]);
+
+  return { head: await git(worktree, ["rev-parse", "HEAD"]) };
+}
+
+async function isDirty(worktree: string): Promise<boolean> {
+  return (await git(worktree, ["status", "--porcelain"])) !== "";
+}
+
+export async function branchState(
+  worktree: string,
+  branch: string,
+  startSha: string | null,
+): Promise<BranchState> {
+  const [head, unpushed, dirty, rebaseDir] = await Promise.all([
+    git(worktree, ["rev-parse", "HEAD"]),
+    git(worktree, ["rev-list", "--count", `origin/${branch}..HEAD`]).catch(() => "1"),
+    isDirty(worktree),
+    git(worktree, ["rev-parse", "--git-path", "rebase-merge"]),
+  ]);
+
+  return {
+    progressed: head !== startSha,
+    unpushed: Number(unpushed) > 0,
+    dirty: dirty || existsSync(resolve(worktree, rebaseDir)),
+  };
 }

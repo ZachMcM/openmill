@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import {
   CLEANABLE_STATES,
   FOLLOWUP_BLOCK_REASON,
@@ -67,7 +67,10 @@ import type { AddAction, AddRequest, JobDetail, JobSummary } from "./api.ts";
 import { writeConfigValue } from "./config-store.ts";
 import { ApiError } from "./errors.ts";
 import {
+  branchState,
   ensureWorktree,
+  fastForward,
+  fetchBranch,
   fetchDefaultBranch,
   git,
   gitRoot,
@@ -104,8 +107,6 @@ const UNPUSHED_REASON = "the follow-up session ended before its changes were pus
 
 const SESSION_OPEN_REASON =
   "someone is still using the previous session in the job's window; follow-ups start when it stops";
-
-const DIRTY_REASON = "the worktree has uncommitted changes";
 
 export class Mill {
   private readonly db: Db;
@@ -1049,7 +1050,7 @@ export class Mill {
   }
 
   private async prepareFollowup(job: Job): Promise<void> {
-    const remoteHead = await withRepoLock(job.repoPath, () => this.fetchBranch(job));
+    const remoteHead = await withRepoLock(job.repoPath, () => fetchBranch(job));
     const observed = getObservation(this.db, job.key)?.headSha;
 
     if (observed && observed !== remoteHead) {
@@ -1074,7 +1075,7 @@ export class Mill {
       return;
     }
 
-    const synced = await this.fastForward(job);
+    const synced = await fastForward(job.worktreePath, job.branchName);
 
     if ("problem" in synced) {
       this.needsInput(job.key, synced.problem);
@@ -1103,9 +1104,9 @@ export class Mill {
     }
 
     const landed = await withRepoLock(job.repoPath, async () => {
-      await this.fetchBranch(job);
+      await fetchBranch(job);
 
-      const synced = await this.fastForward(job);
+      const synced = await fastForward(job.worktreePath, job.branchName);
 
       if ("problem" in synced) {
         this.needsInput(job.key, synced.problem);
@@ -1252,60 +1253,12 @@ export class Mill {
     }
   }
 
-  private async fetchBranch(job: Job): Promise<string> {
-    await ensureWorktree(
-      job.repoPath,
-      job.worktreePath,
-      job.branchName,
-      job.baseBranch ?? job.branchName,
-    );
-    await git(job.worktreePath, ["fetch", "origin"]);
-
-    return git(job.worktreePath, ["rev-parse", `origin/${job.branchName}`]);
-  }
-
-  private async fastForward(job: Job): Promise<{ head: string } | { problem: string }> {
-    const cwd = job.worktreePath;
-    const remote = `origin/${job.branchName}`;
-
-    if ((await git(cwd, ["status", "--porcelain"])) !== "") {
-      return { problem: DIRTY_REASON };
-    }
-
-    const [ahead = 0, behind = 0] = (
-      await git(cwd, ["rev-list", "--left-right", "--count", `HEAD...${remote}`])
-    )
-      .split(/\s+/)
-      .map(Number);
-
-    if (ahead > 0 && behind > 0) {
-      return { problem: `the branch has diverged from ${remote}` };
-    }
-
-    await git(cwd, ["merge", "--ff-only", remote]);
-
-    return { head: await git(cwd, ["rev-parse", "HEAD"]) };
-  }
-
   private async branchState(job: Job, run: Run): Promise<BranchState> {
-    const cwd = job.worktreePath;
+    await withRepoLock(job.repoPath, () =>
+      git(job.worktreePath, ["fetch", "origin", job.branchName]),
+    ).catch((error: unknown) => this.log(`fetching ${job.branchName} failed: ${String(error)}`));
 
-    await withRepoLock(job.repoPath, () => git(cwd, ["fetch", "origin", job.branchName])).catch(
-      (error: unknown) => this.log(`fetching ${job.branchName} failed: ${String(error)}`),
-    );
-
-    const [head, unpushed, status, rebaseDir] = await Promise.all([
-      git(cwd, ["rev-parse", "HEAD"]),
-      git(cwd, ["rev-list", "--count", `origin/${job.branchName}..HEAD`]).catch(() => "1"),
-      git(cwd, ["status", "--porcelain"]),
-      git(cwd, ["rev-parse", "--git-path", "rebase-merge"]),
-    ]);
-
-    return {
-      progressed: head !== run.startSha,
-      unpushed: Number(unpushed) > 0,
-      dirty: status !== "" || existsSync(resolve(cwd, rebaseDir)),
-    };
+    return branchState(job.worktreePath, job.branchName, run.startSha);
   }
 
   private async sessionBusy(job: Job): Promise<boolean> {
