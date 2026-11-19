@@ -1,6 +1,24 @@
 import type { DependencyGraph } from "./graph.ts";
 import { BLOCKING_STATES, type JobState } from "./states.ts";
 
+export interface StackedJob {
+  key: number;
+  repoPath: string;
+  branchName: string;
+  prBaseBranch: string | null;
+  state: string;
+}
+
+export function stackedOn(job: StackedJob, parent: StackedJob): boolean {
+  return (
+    job.repoPath === parent.repoPath &&
+    job.key !== parent.key &&
+    job.prBaseBranch === parent.branchName &&
+    job.state !== "merged" &&
+    job.state !== "cancelled"
+  );
+}
+
 export interface SchedulableJob {
   id: string;
   state: JobState;
