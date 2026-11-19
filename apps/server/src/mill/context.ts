@@ -1,5 +1,5 @@
-import type { Config } from "@openmill/core";
-import type { Db } from "@openmill/db";
+import type { Config, PrObservation } from "@openmill/core";
+import type { Db, Job } from "@openmill/db";
 import type { Agent } from "../agent/types.ts";
 import type { GitHub } from "../github.ts";
 import type { Notify } from "../notifier/index.ts";
@@ -21,4 +21,5 @@ export interface MillContext {
   preparing: Set<number>;
   staleHeads: Map<number, string>;
   schedule: () => void;
+  refresh: (job: Job) => Promise<PrObservation | undefined>;
 }

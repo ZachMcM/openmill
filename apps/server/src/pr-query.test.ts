@@ -24,7 +24,12 @@ describe("parseWatchResponse", () => {
             { name: "Check (ubuntu-latest)", status: "COMPLETED", conclusion: "SUCCESS" },
             { name: "Check (windows-latest)", status: "IN_PROGRESS", conclusion: null },
             { name: "GitGuardian Security Checks", status: "COMPLETED", conclusion: "SUCCESS" },
-            { name: "netlify/deploy-preview", status: "COMPLETED", conclusion: "SUCCESS" },
+            {
+              name: "netlify/deploy-preview",
+              status: "COMPLETED",
+              conclusion: "SUCCESS",
+              kind: "status",
+            },
           ],
         },
         threads: [

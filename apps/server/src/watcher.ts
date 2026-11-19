@@ -3,6 +3,7 @@ import {
   diffObservation,
   isTrusted,
   observe,
+  stackedOn,
   type Config,
   type JobState,
   type PrEvent,
@@ -10,7 +11,16 @@ import {
   type PrSnapshot,
   type PrState,
 } from "@openmill/core";
-import { getJob, getObservation, listJobs, saveObservation, type Db, type Job } from "@openmill/db";
+import {
+  getJob,
+  getObservation,
+  listJobs,
+  saveObservation,
+  updateObservation,
+  type Db,
+  type Job,
+} from "@openmill/db";
+import { FastLane, type LaneTarget } from "./fast-lane.ts";
 import type { GitHub } from "./github.ts";
 import {
   appendPage,
@@ -22,6 +32,8 @@ import {
 } from "./pr-query.ts";
 
 const LOW_BUDGET = 0.1;
+const SAFETY_NET_INTERVAL = 120_000;
+const CHECK_WINDOW = 2_000;
 
 interface Target {
   job: Job;
@@ -33,6 +45,7 @@ export interface WatcherOptions {
   github: GitHub;
   config: () => Config;
   onChange: (job: Job, events: PrEvent[], observation: PrObservation) => void;
+  onMergeable: (job: Job, mergeable: boolean | null) => void;
   log: (message: string) => void;
   debug: (message: string) => void;
 }
@@ -42,10 +55,21 @@ export class PrWatcher {
   private polling: Promise<void> | undefined;
   private waitUntil = 0;
   private closed = false;
+  private readonly fetchedAt = new Map<number, number>();
+  private readonly trailing = new Map<number, NodeJS.Timeout>();
+  private readonly fetching = new Set<Promise<void>>();
+  private readonly lane: FastLane;
   private readonly options: WatcherOptions;
 
   constructor(options: WatcherOptions) {
     this.options = options;
+    this.lane = new FastLane({
+      targets: () => this.laneTargets(),
+      check: (job, mergeable) => this.check(job, mergeable),
+      token: (host) => options.github.token(host),
+      log: options.log,
+      debug: options.debug,
+    });
   }
 
   poll(): void {
@@ -64,28 +88,84 @@ export class PrWatcher {
   }
 
   wake(): void {
+    this.lane.start();
+
     if (this.closed || this.timer || this.polling || this.targets().length === 0) {
       return;
     }
 
-    const interval = this.options.config().watch_interval * 1000;
-    const delay = Math.max(interval, this.waitUntil - Date.now());
+    const delay = Math.max(SAFETY_NET_INTERVAL, this.waitUntil - Date.now());
 
     this.timer = setTimeout(() => this.poll(), delay);
   }
 
-  restart(): void {
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = undefined;
-      this.wake();
+  check(job: Job, mergeable?: boolean | null): void {
+    if (mergeable !== undefined) {
+      this.recordMergeable(job, mergeable);
     }
+
+    if (this.closed || this.trailing.has(job.key)) {
+      return;
+    }
+
+    const wait = (this.fetchedAt.get(job.key) ?? -Infinity) + CHECK_WINDOW - Date.now();
+
+    if (wait <= 0) {
+      this.fetch(job);
+
+      return;
+    }
+
+    this.trailing.set(
+      job.key,
+      setTimeout(() => {
+        this.trailing.delete(job.key);
+        this.fetch(job);
+      }, wait),
+    );
+  }
+
+  async refresh(job: Job): Promise<PrObservation | undefined> {
+    const ref = job.prUrl ? parsePrUrl(job.prUrl) : undefined;
+
+    return ref ? (await this.pollRepo([{ job, ref }])).get(job.key) : undefined;
   }
 
   async close(): Promise<void> {
     this.closed = true;
     clearTimeout(this.timer);
-    await this.polling;
+
+    for (const timer of this.trailing.values()) {
+      clearTimeout(timer);
+    }
+
+    await Promise.all([this.polling, this.lane.close(), ...this.fetching]);
+  }
+
+  private fetch(job: Job): void {
+    const ref = job.prUrl ? parsePrUrl(job.prUrl) : undefined;
+
+    if (!ref || Date.now() < this.waitUntil) {
+      return;
+    }
+
+    this.fetchedAt.set(job.key, Date.now());
+    const fetching = this.pollRepo([{ job, ref }])
+      .then(() => {})
+      .catch((error: unknown) =>
+        this.repoFailed(`${ref.host}/${ref.owner}/${ref.name}`, [{ job, ref }], error),
+      )
+      .finally(() => this.fetching.delete(fetching));
+
+    this.fetching.add(fetching);
+  }
+
+  private recordMergeable(job: Job, mergeable: boolean | null): void {
+    if (getObservation(this.options.db, job.key)?.prUrl === job.prUrl) {
+      updateObservation(this.options.db, job.key, { mergeable });
+    }
+
+    this.options.onMergeable(job, mergeable);
   }
 
   private targets(): Target[] {
@@ -99,6 +179,24 @@ export class PrWatcher {
     });
   }
 
+  private laneTargets(): LaneTarget[] {
+    const { db } = this.options;
+    const jobs = listJobs(db);
+
+    return this.targets().map(({ job, ref }) => {
+      const stored = getObservation(db, job.key);
+      const observation = stored?.prUrl === job.prUrl ? stored : undefined;
+
+      return {
+        job,
+        ref,
+        headSha: observation?.headSha,
+        statuses: observation?.checks.checks.some((check) => check.kind === "status") ?? false,
+        dependents: jobs.some((other) => stackedOn(other, job)),
+      };
+    });
+  }
+
   private async tick(): Promise<void> {
     const repos = Map.groupBy(this.targets(), ({ ref }) => `${ref.host}/${ref.owner}/${ref.name}`);
 
@@ -109,7 +207,7 @@ export class PrWatcher {
     );
   }
 
-  private async pollRepo(targets: Target[]): Promise<void> {
+  private async pollRepo(targets: Target[]): Promise<Map<number, PrObservation>> {
     const { github } = this.options;
     const [first] = targets as [Target, ...Target[]];
     const { host, owner, name } = first.ref;
@@ -125,6 +223,8 @@ export class PrWatcher {
     if (remaining < limit * LOW_BUDGET) {
       this.waitFor(resetAt, `${remaining} of ${limit} GitHub GraphQL points left`);
     }
+
+    const observations = new Map<number, PrObservation>();
 
     for (const { job, ref } of targets) {
       const pr = response.prs.get(ref.number);
@@ -147,8 +247,14 @@ export class PrWatcher {
         pages.push(...appendPage(pr.snapshot, json));
       }
 
-      this.record(job, pr.snapshot);
+      const observation = this.record(job, pr.snapshot);
+
+      if (observation) {
+        observations.set(job.key, observation);
+      }
     }
+
+    return observations;
   }
 
   private async repoFailed(repo: string, targets: Target[], error: unknown): Promise<void> {
@@ -171,12 +277,12 @@ export class PrWatcher {
     this.options.log(`PR watcher waiting until ${resetAt.toISOString()}: ${why}`);
   }
 
-  private record(job: Job, snapshot: PrSnapshot): void {
+  private record(job: Job, snapshot: PrSnapshot): PrObservation | undefined {
     const { db, config, debug, onChange } = this.options;
     const current = getJob(db, job.key);
 
     if (!current || current.prUrl !== job.prUrl || job.prUrl === null) {
-      return;
+      return undefined;
     }
 
     const trustedBots = config().trusted_bots;
@@ -201,10 +307,13 @@ export class PrWatcher {
       polledAt: new Date(),
       ...observation,
       readyNotifiedSha: same?.readyNotifiedSha ?? null,
+      mergeable: same?.mergeable ?? null,
     });
 
     if (events.length > 0) {
       onChange(current, events, observation);
     }
+
+    return observation;
   }
 }

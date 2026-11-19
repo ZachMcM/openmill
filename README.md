@@ -108,11 +108,20 @@ job stays `running`. `openmill ls` and `openmill show` print it as
 Windows stay open after a job ends and keep running when the server restarts. When a run ends,
 openmill saves the window's text to the job's `runs` folder.
 
-Once a job has a draft PR, the server polls GitHub every `watch_interval` seconds (120 by
-default). It notifies you when the PR's checks all pass, and moves the job to `merged` or `closed`
-when the PR does. Merging removes the job's worktree and local branch. Reviews and threads only
-count when they come from the repo's owners, members, or collaborators, or from a login in
-`trusted_bots`. Set `OPENMILL_DEBUG=1` before the server starts to log the ones it ignores.
+Once a job has a draft PR, the server checks it with conditional GitHub REST requests as often as
+once a second. Those return `304 Not Modified` until something changes and don't count against
+your rate limit. When the PR, its check runs, or its commit statuses change, the server fetches
+the PR right away, so merges, reviews, and CI results show up within a couple of seconds. The
+requests stay under 600 a minute, so with many PRs open each one is checked less often. A full
+poll every 120 seconds catches anything the cheap checks miss, such as a resolved thread. If
+GitHub rate limits the fast checks, they pause and the 120-second poll keeps running.
+
+The server notifies you when the PR's checks all pass, and moves the job to `merged` or `closed`
+when the PR does. When the PR conflicts with its base branch, the job moves to `needs_input`
+with a notification, and back to `done` once the conflict is fixed. Merging removes the job's
+worktree and local branch. Reviews and threads only count when they come from the repo's owners,
+members, or collaborators, or from a login in `trusted_bots`. Set `OPENMILL_DEBUG=1` before the
+server starts to log the ones it ignores.
 
 ### Follow-ups
 
@@ -180,7 +189,7 @@ Discord or Slack connector. Desktop notifications use
 ```
 
 `event` is one of `needs_input`, `needs_permission`, `failed`, `ready_for_review`,
-`followup_ready`, `followups_exhausted`, or `pr_opened`.
+`followup_ready`, `followups_exhausted`, `pr_opened`, or `session_closed`.
 
 #### Discord and Slack
 
@@ -242,7 +251,6 @@ Config lives in `~/.openmill/config.json`. Read and change it with `openmill con
 | `effort`            | `medium` | A level the agent and model support (see below)               |
 | `notify_desktop`    | `true`   | Send desktop notifications                                    |
 | `notify_command`    | unset    | Shell command that gets each notification as JSON on stdin    |
-| `watch_interval`    | `120`    | Seconds between GitHub polls for open PRs. At least 30        |
 | `trusted_bots`      | empty    | Comma-separated bot logins whose reviews count                |
 | `review_push`       | `wait`   | `wait` or `auto` for pushes from review follow-ups            |
 | `ci_push`           | `auto`   | `wait` or `auto` for pushes from CI follow-ups                |

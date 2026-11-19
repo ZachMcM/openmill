@@ -1,0 +1,1 @@
+ALTER TABLE `pr_observations` ADD `mergeable` integer;

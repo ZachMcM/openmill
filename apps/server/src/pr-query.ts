@@ -188,6 +188,7 @@ function check(context: z.infer<typeof contextSchema>): PrCheck {
     name: context.context,
     status: pending ? "PENDING" : "COMPLETED",
     conclusion: pending ? null : context.state,
+    kind: "status",
   };
 }
 

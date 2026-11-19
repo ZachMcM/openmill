@@ -46,9 +46,8 @@ describe("prNotificationFor", () => {
   };
 
   it("says a done job is ready for review when every check passed", () => {
-    expect(prNotificationFor("done", "checks_finished", observation)).toBe("ready_for_review");
-    expect(prNotificationFor("done", "checks_finished", failing)).toBeNull();
-    expect(prNotificationFor("closed", "checks_finished", observation)).toBeNull();
-    expect(prNotificationFor("done", "head_moved", observation)).toBeNull();
+    expect(prNotificationFor("done", observation)).toBe("ready_for_review");
+    expect(prNotificationFor("done", failing)).toBeNull();
+    expect(prNotificationFor("closed", observation)).toBeNull();
   });
 });

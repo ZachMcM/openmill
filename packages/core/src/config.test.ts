@@ -16,8 +16,6 @@ describe("config", () => {
     expect(parseConfigValue("notify_desktop", "false")).toEqual({ ok: true, value: false });
     expect(parseConfigValue("notify_desktop", "no").ok).toBe(false);
     expect(parseConfigValue("notify_command", "")).toEqual({ ok: true, value: undefined });
-    expect(parseConfigValue("watch_interval", "30")).toEqual({ ok: true, value: 30 });
-    expect(parseConfigValue("watch_interval", "29").ok).toBe(false);
     expect(parseConfigValue("review_push", "auto")).toEqual({ ok: true, value: "auto" });
     expect(parseConfigValue("ci_push", "never").ok).toBe(false);
     expect(parseConfigValue("followup_attempts", "0").ok).toBe(false);

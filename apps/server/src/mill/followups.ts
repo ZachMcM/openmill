@@ -1,7 +1,11 @@
 import {
+  SESSION_STATES,
   WATCHED_STATES,
+  conflictReason,
+  decideConflict,
   decideFollowup,
   prNotificationFor,
+  stackedOn,
   pushModeFor,
   type FollowupDecision,
   type JobState,
@@ -24,7 +28,15 @@ import {
 } from "@openmill/db";
 import { fastForward, fetchBranch, git, removeWorktree, withRepoLock } from "../git.ts";
 import type { MillContext } from "./context.ts";
-import { SESSION_OPEN_REASON, finish, needsInput, send, transition } from "./lifecycle.ts";
+import {
+  SESSION_OPEN_REASON,
+  closeWindow,
+  endRun,
+  finish,
+  needsInput,
+  send,
+  transition,
+} from "./lifecycle.ts";
 
 const PR_STATE_EVENTS: ReadonlyArray<[PrEvent, JobState]> = [
   ["merged", "merged"],
@@ -50,34 +62,77 @@ export function applyPrEvents(
     return;
   }
 
-  let state = job.state as JobState;
   const next = PR_STATE_EVENTS.find(([event]) => events.includes(event))?.[1];
 
-  if (next && transition(ctx, key, { to: next })) {
-    state = next;
+  if (next && transition(ctx, key, { to: next, fields: { nextRun: null } }) && next !== "done") {
+    void prEnded(ctx, job, next, observation);
+  }
+}
 
-    if (next === "merged") {
-      if (job.prBaseBranch) {
-        markDependents(ctx, job, { base: job.prBaseBranch, cut: observation.headSha });
-      }
+export function applyMergeable(ctx: MillContext, key: number, mergeable: boolean | null): void {
+  const job = getJob(ctx.db, key);
 
-      void cleanUpMerged(ctx, job);
-    }
+  if (!job?.prBaseBranch) {
+    return;
   }
 
-  const ready = events.some(
-    (event) => prNotificationFor(state, event, observation) === "ready_for_review",
-  );
+  const decision = decideConflict({
+    state: job.state as JobState,
+    restacking: job.restack !== null,
+    blockedReason: job.blockedReason,
+    base: job.prBaseBranch,
+    mergeable,
+  });
 
-  if (ready && getObservation(ctx.db, key)?.readyNotifiedSha !== observation.headSha) {
-    updateObservation(ctx.db, key, { readyNotifiedSha: observation.headSha });
-    send(ctx, "ready_for_review", key, "every check passed");
+  if (decision === "flag") {
+    needsInput(ctx, key, conflictReason(job.prBaseBranch));
+  } else if (decision === "clear") {
+    transition(ctx, key, { from: ["needs_input"], to: "done", fields: { blockedReason: null } });
+  }
+}
+
+async function prEnded(
+  ctx: MillContext,
+  job: Job,
+  state: JobState,
+  observation: PrObservation,
+): Promise<void> {
+  const run = latestRun(ctx.db, job.key);
+  const live = SESSION_STATES.includes(job.state as JobState) && run?.blockId && !run.endedAt;
+
+  if (run && live) {
+    await endRun(ctx, job, run, { status: "done" });
+    await closeWindow(ctx, run);
+    send(
+      ctx,
+      "session_closed",
+      job.key,
+      `the PR ${state} while openmill was working on it, so its session was closed`,
+    );
+  }
+
+  if (state === "merged") {
+    if (job.prBaseBranch) {
+      markDependents(ctx, job, { base: job.prBaseBranch, cut: observation.headSha });
+    }
+
+    await cleanUpMerged(ctx, job);
+  }
+
+  if (live) {
+    ctx.schedule();
   }
 }
 
 export function followUp(ctx: MillContext): void {
   for (const job of listJobs(ctx.db)) {
-    if (job.state !== "done" || ctx.preparing.has(job.key)) {
+    if (job.state !== "done") {
+      continue;
+    }
+
+    notifyReady(ctx, job);
+
+    if (ctx.preparing.has(job.key)) {
       continue;
     }
 
@@ -103,14 +158,29 @@ export async function completeFollowup(ctx: MillContext, key: number, run: Run):
   finish(ctx, key, getJob(ctx.db, key)?.prUrl as string);
 }
 
-function decide(ctx: MillContext, job: Job): FollowupDecision {
+function observationOf(ctx: MillContext, job: Job): PrObservation | undefined {
   const row = getObservation(ctx.db, job.key);
-  const observation =
-    row && row.prUrl === job.prUrl ? { ...row, state: row.state as PrState } : undefined;
 
+  return row && row.prUrl === job.prUrl ? { ...row, state: row.state as PrState } : undefined;
+}
+
+function notifyReady(ctx: MillContext, job: Job): void {
+  const observation = observationOf(ctx, job);
+
+  if (
+    observation &&
+    getObservation(ctx.db, job.key)?.readyNotifiedSha !== observation.headSha &&
+    prNotificationFor(job.state as JobState, observation) === "ready_for_review"
+  ) {
+    updateObservation(ctx.db, job.key, { readyNotifiedSha: observation.headSha });
+    send(ctx, "ready_for_review", job.key, "every check passed");
+  }
+}
+
+function decide(ctx: MillContext, job: Job): FollowupDecision {
   return decideFollowup({
     state: job.state as JobState,
-    observation,
+    observation: observationOf(ctx, job),
     runs: listRuns(ctx.db, job.key),
     attempts: ctx.config.followup_attempts,
     staleHead: ctx.staleHeads.get(job.key),
@@ -277,14 +347,19 @@ async function landRestack(ctx: MillContext, key: number, before: string): Promi
 
 function markDependents(ctx: MillContext, parent: Job, restack: RestackRecord): void {
   for (const job of listJobs(ctx.db)) {
-    if (
-      job.repoPath === parent.repoPath &&
-      job.key !== parent.key &&
-      job.prBaseBranch === parent.branchName &&
-      job.state !== "merged" &&
-      job.state !== "cancelled"
-    ) {
-      updateJob(ctx.db, job.key, { restack });
+    if (!stackedOn(job, parent)) {
+      continue;
+    }
+
+    updateJob(ctx.db, job.key, { restack });
+
+    // The fast lane can report the conflict a parent merge causes before the watcher sees the merge.
+    if (job.blockedReason === conflictReason(parent.branchName)) {
+      transition(ctx, job.key, {
+        from: ["needs_input"],
+        to: "done",
+        fields: { blockedReason: null },
+      });
     }
   }
 }

@@ -43,7 +43,7 @@ import { ApiError } from "./errors.ts";
 import { gitRoot } from "./git.ts";
 import type { GitHub } from "./github.ts";
 import type { MillContext } from "./mill/context.ts";
-import { applyPrEvents, completeFollowup, followUp } from "./mill/followups.ts";
+import { applyMergeable, applyPrEvents, completeFollowup, followUp } from "./mill/followups.ts";
 import { followupState, handleHook, sessionGone } from "./mill/hooks.ts";
 import {
   capturePath,
@@ -90,6 +90,7 @@ export class Mill {
       preparing: new Set(),
       staleHeads: new Map(),
       schedule: () => this.schedule(),
+      refresh: (job) => this.watcher.refresh(job),
     };
     this.watcher = new PrWatcher({
       db: options.db,
@@ -97,6 +98,10 @@ export class Mill {
       config: () => this.ctx.config,
       onChange: (job, events, observation) => {
         applyPrEvents(this.ctx, job.key, events, observation);
+        this.schedule();
+      },
+      onMergeable: (job, mergeable) => {
+        applyMergeable(this.ctx, job.key, mergeable);
         this.schedule();
       },
       log,
@@ -461,10 +466,6 @@ export class Mill {
     }
 
     this.ctx.config = await writeConfigValue(this.ctx.paths.config, key, value);
-
-    if (key === "watch_interval") {
-      this.watcher.restart();
-    }
 
     this.schedule();
 

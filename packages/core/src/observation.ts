@@ -9,6 +9,7 @@ export interface PrCheck {
   name: string;
   status: string;
   conclusion: string | null;
+  kind?: "status";
 }
 
 export interface PrChecks {
@@ -86,9 +87,26 @@ export function observe(snapshot: PrSnapshot, trustedBots: readonly string[]): P
   };
 }
 
+// A cancelled run is usually one a newer run of the same check replaced. When the newer run hasn't
+// registered yet, the cancelled one counts as unfinished.
+function currentChecks(checks: PrChecks): PrCheck[] {
+  const replaced = new Set(
+    checks.checks.filter((check) => check.conclusion !== "CANCELLED").map((check) => check.name),
+  );
+
+  return checks.checks.filter(
+    (check) => check.conclusion !== "CANCELLED" || !replaced.has(check.name),
+  );
+}
+
 // No checks at all usually means CI hasn't registered yet, so it doesn't count as finished.
-function checksFinished(checks: PrChecks): boolean {
-  return checks.checks.length > 0 && checks.checks.every((check) => check.status === "COMPLETED");
+export function checksFinished(checks: PrChecks): boolean {
+  const current = currentChecks(checks);
+
+  return (
+    current.length > 0 &&
+    current.every((check) => check.status === "COMPLETED" && check.conclusion !== "CANCELLED")
+  );
 }
 
 function failed(check: PrCheck): boolean {
@@ -96,11 +114,15 @@ function failed(check: PrCheck): boolean {
 }
 
 export function checksSucceeded(checks: PrChecks): boolean {
-  return checksFinished(checks) && !checks.checks.some(failed);
+  return checksFinished(checks) && !currentChecks(checks).some(failed);
 }
 
 export function failingChecks(checks: PrChecks): string[] {
-  return checksFinished(checks) ? checks.checks.filter(failed).map((check) => check.name) : [];
+  return checksFinished(checks)
+    ? currentChecks(checks)
+        .filter(failed)
+        .map((check) => check.name)
+    : [];
 }
 
 export function diffObservation(

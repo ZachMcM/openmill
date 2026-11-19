@@ -3,6 +3,7 @@ import {
   STOP_BLOCK_REASON,
   followupOutcome,
   stopDecision,
+  triggerCleared,
   type BranchState,
   type FollowupOutcome,
 } from "@openmill/core";
@@ -162,6 +163,13 @@ async function onStop(
     );
   }
 
+  if ((outcome === "block" || outcome === "needs_input") && (await nothingToFix(ctx, job, run))) {
+    await endRun(ctx, job, run, { status: "done" });
+    await completeFollowup(ctx, job.key, run);
+
+    return null;
+  }
+
   switch (outcome) {
     case "done":
       await completeFollowup(ctx, job.key, run);
@@ -227,7 +235,7 @@ async function onSessionEnd(ctx: MillContext, job: Job, run: Run): Promise<void>
   if (run.kind !== "feature") {
     const outcome = await followupState(ctx, job, run);
 
-    if (outcome === "done") {
+    if (outcome === "done" || (outcome === "needs_input" && (await nothingToFix(ctx, job, run)))) {
       await endRun(ctx, job, run, { status: "done" });
       await completeFollowup(ctx, job.key, run);
     } else {
@@ -279,6 +287,22 @@ export async function followupState(
     ctx.log(`reading the branch of ${job.id} failed: ${String(error)}`);
 
     return "needs_input";
+  }
+}
+
+async function nothingToFix(ctx: MillContext, job: Job, run: Run): Promise<boolean> {
+  if (!run.trigger) {
+    return false;
+  }
+
+  try {
+    const observation = await ctx.refresh(job);
+
+    return observation !== undefined && triggerCleared(run.trigger, observation);
+  } catch (error) {
+    ctx.log(`refreshing the PR of ${job.id} failed: ${String(error)}`);
+
+    return false;
   }
 }
 

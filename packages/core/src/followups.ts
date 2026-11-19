@@ -1,5 +1,5 @@
 import type { Config, PushMode } from "./config.ts";
-import { failingChecks, type PrObservation } from "./observation.ts";
+import { checksFinished, failingChecks, type PrObservation } from "./observation.ts";
 import type { JobState } from "./states.ts";
 
 export type RunKind = "feature" | "followup" | "restack";
@@ -101,6 +101,19 @@ export function decideFollowup(input: FollowupInput): FollowupDecision {
   }
 
   return { action: "run", trigger };
+}
+
+export function triggerCleared(trigger: FollowupTrigger, observation: PrObservation): boolean {
+  const failing = failingChecks(observation.checks);
+  const checksPassed =
+    trigger.checks.length === 0 ||
+    (checksFinished(observation.checks) &&
+      !trigger.checks.some((check) => failing.includes(check)));
+
+  return (
+    checksPassed &&
+    !trigger.threads.some((thread) => observation.unresolvedThreads.includes(thread))
+  );
 }
 
 export function pushModeFor(
