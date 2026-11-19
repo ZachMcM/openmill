@@ -48,6 +48,7 @@ Use pnpm for everything. Never use npm or yarn, and never edit `pnpm-lock.yaml` 
 
 - Design docs in `.design-docs/` are the spec for a change. They are gitignored. Don't edit or commit them.
 - When a design doc and this file disagree, follow this file and note the conflict in the PR.
+- User-facing behavior is documented in `docs/`. Update the matching page in the same PR.
 - State lives under `~/.openmill/`, or `OPENMILL_HOME` when it's set. Resolve paths through `resolvePaths()` and don't hardcode them.
 - The server listens on a unix socket with mode `0600`. It never listens on a TCP port.
 - The scheduler is event-driven. Don't add polling or timers to it. The PR watcher is the only
