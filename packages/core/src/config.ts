@@ -1,14 +1,17 @@
 export const AGENTS = ["claude"] as const;
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export const PUSH_MODES = ["wait", "auto"] as const;
+export const PERMISSION_MODES = ["auto", "bypass"] as const;
 
 export type AgentName = (typeof AGENTS)[number];
 export type Effort = (typeof EFFORTS)[number];
 export type PushMode = (typeof PUSH_MODES)[number];
+export type PermissionMode = (typeof PERMISSION_MODES)[number];
 
 export interface Config {
   concurrency: number;
   agent: AgentName;
+  permission_mode: PermissionMode;
   model?: string;
   effort: Effort;
   notify_desktop: boolean;
@@ -23,6 +26,7 @@ export interface Config {
 export const CONFIG_KEYS = [
   "concurrency",
   "agent",
+  "permission_mode",
   "model",
   "effort",
   "notify_desktop",
@@ -39,6 +43,7 @@ export type ConfigKey = (typeof CONFIG_KEYS)[number];
 export const DEFAULT_CONFIG: Config = {
   concurrency: 2,
   agent: "claude",
+  permission_mode: "auto",
   effort: "medium",
   notify_desktop: true,
   watch_interval: 120,
@@ -65,6 +70,7 @@ function parseOneOf<T extends string>(name: string, values: readonly T[]) {
 
 export const parseAgent = parseOneOf("agent", AGENTS);
 export const parseEffort = parseOneOf("effort", EFFORTS);
+export const parsePermissionMode = parseOneOf("permission_mode", PERMISSION_MODES);
 
 function parsePositiveInteger(name: string, value: string): ParsedValue<number> {
   const number = Number(value);
@@ -86,6 +92,8 @@ export function parseConfigValue(key: ConfigKey, value: string): ParsedValue<Con
       return parsePositiveInteger(key, value);
     case "agent":
       return parseAgent(value);
+    case "permission_mode":
+      return parsePermissionMode(value);
     case "model":
       return parseModel(value);
     case "effort":

@@ -19,6 +19,7 @@ const BODY_LIMIT = 200;
 
 const EVENT_LABELS: Record<NotificationEvent, string> = {
   needs_input: "needs input",
+  needs_permission: "waiting for permission",
   failed: "failed",
   ready_for_review: "ready for review",
   followup_ready: "follow-up ready to push",

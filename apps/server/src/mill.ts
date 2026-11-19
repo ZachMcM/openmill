@@ -160,6 +160,11 @@ export class Mill {
       }
     }
 
+    const resolved = {
+      agent: request.agent ?? this.ctx.config.agent,
+      permissionMode: request.permissionMode ?? this.ctx.config.permission_mode,
+    };
+
     db.transaction((tx) => {
       const keys = new Map([...existing].map(([id, job]) => [id, job.key]));
       const touched: Array<{ key: number; dependsOn: string[] }> = [];
@@ -171,6 +176,7 @@ export class Mill {
           projectSnapshot: doc.project?.content ?? null,
           ...(request.base ? { requestedBase: request.base } : {}),
           ...(request.agent ? { agent: request.agent } : {}),
+          ...(request.permissionMode ? { permissionMode: request.permissionMode } : {}),
           ...(request.model ? { model: request.model } : {}),
           ...(request.effort ? { effort: request.effort } : {}),
         };
@@ -182,6 +188,7 @@ export class Mill {
             branchName: branchName(doc.id),
             worktreePath: worktreePath(paths, repoPath, doc.id),
             ...fields,
+            ...resolved,
           });
 
           keys.set(doc.id, row.key);
@@ -193,6 +200,7 @@ export class Mill {
           assertTransition(getJob(tx, job.key)?.state as JobState, "queued");
           updateJob(tx, job.key, {
             ...fields,
+            ...resolved,
             state: "queued",
             blockedReason: null,
             prUrl: null,
@@ -400,8 +408,9 @@ export class Mill {
   async hook(runId: number, event: string, payload: unknown): Promise<unknown> {
     const { reply, type } = await handleHook(this.ctx, runId, event, payload);
 
-    // Tool-use hooks fire on every agent tool call and never change job state.
-    if (type && type !== "tool_use") {
+    // Tool-use hooks fire on every agent tool call, and neither they nor permission waits change
+    // job state.
+    if (type && type !== "tool_use" && type !== "permission_wait") {
       this.schedule();
     }
 
@@ -597,6 +606,7 @@ function summary(job: Job, run: Run | undefined): JobSummary {
     reason: job.blockedReason ?? runReason,
     sessionId: job.sessionId,
     prUrl: job.prUrl,
+    waitingSince: job.state === "running" ? (run?.waitingSince?.getTime() ?? null) : null,
   };
 }
 

@@ -1,10 +1,11 @@
-import { AGENTS, EFFORTS } from "@openmill/core";
+import { AGENTS, EFFORTS, PERMISSION_MODES } from "@openmill/core";
 import { z } from "zod";
 
 export const addRequestSchema = z.object({
   repo: z.string().min(1),
   base: z.string().min(1).optional(),
   agent: z.enum(AGENTS).optional(),
+  permissionMode: z.enum(PERMISSION_MODES).optional(),
   model: z.string().min(1).optional(),
   effort: z.enum(EFFORTS).optional(),
   force: z.boolean().default(false),
@@ -33,6 +34,7 @@ export interface JobSummary {
   reason: string | null;
   sessionId: string | null;
   prUrl: string | null;
+  waitingSince: number | null;
 }
 
 export interface JobDetail extends JobSummary {

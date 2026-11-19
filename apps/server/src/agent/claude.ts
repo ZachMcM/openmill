@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { pluginDir } from "@openmill/assets";
 import { z } from "zod";
 import { loadClaudeAgents } from "./agents.ts";
-import { pushGateDenial } from "./claude-push-gate.ts";
 import type { Agent, HookEvent, RunInput } from "./types.ts";
 
 const HOOK_TYPES = {
@@ -12,6 +11,7 @@ const HOOK_TYPES = {
   UserPromptSubmit: "prompt",
   SessionEnd: "session_end",
   PreToolUse: "tool_use",
+  Notification: "permission_wait",
 } as const satisfies Record<string, HookEvent["type"]>;
 
 const SESSION_HOOKS = ["Stop", "UserPromptSubmit", "SessionEnd"] as const;
@@ -20,6 +20,10 @@ const hookPayloadSchema = z.object({
   session_id: z.string(),
   transcript_path: z.string().optional(),
   stop_hook_active: z.boolean().optional(),
+  last_assistant_message: z.string().optional(),
+  permission_mode: z.string().optional(),
+  notification_type: z.string().optional(),
+  message: z.string().optional(),
   tool_name: z.string().optional(),
   tool_input: z.looseObject({ command: z.string().optional() }).optional(),
 });
@@ -62,20 +66,20 @@ function hooksSettings(input: RunInput): string {
   const hook = (event: keyof typeof HOOK_TYPES) => ({
     hooks: [{ type: "command", command: `${base} hook ${event}` }],
   });
-  const hooks: Record<string, unknown[]> = Object.fromEntries(
-    SESSION_HOOKS.map((event) => [event, [hook(event)]]),
-  );
-
-  if (input.pushGate) {
-    hooks.PreToolUse = [{ matcher: "Bash", ...hook("PreToolUse") }];
-  }
+  const hooks = {
+    ...Object.fromEntries(SESSION_HOOKS.map((event) => [event, [hook(event)]])),
+    PreToolUse: [{ matcher: "Bash", ...hook("PreToolUse") }],
+    Notification: [{ matcher: "permission_prompt", ...hook("Notification") }],
+  };
 
   return JSON.stringify({ hooks });
 }
 
 function sharedArgs(input: RunInput): string[] {
   return [
-    "--dangerously-skip-permissions",
+    ...(input.permissionMode === "auto"
+      ? ["--permission-mode", "auto"]
+      : ["--dangerously-skip-permissions"]),
     "--plugin-dir",
     pluginDir,
     "--agents",
@@ -117,34 +121,41 @@ export const claudeAgent: Agent = {
       return undefined;
     }
 
-    const { transcript_path: transcriptPath } = parsed.data;
+    const { transcript_path: transcriptPath, permission_mode: mode } = parsed.data;
 
     switch (type) {
       case "stop":
-        return { type, transcriptPath, stopHookActive: parsed.data.stop_hook_active ?? false };
+        return {
+          type,
+          transcriptPath,
+          stopHookActive: parsed.data.stop_hook_active ?? false,
+          lastMessage: parsed.data.last_assistant_message,
+        };
+      case "prompt":
+        return { type, transcriptPath, autoMode: mode === undefined ? undefined : mode === "auto" };
       case "tool_use":
         return {
           type,
           transcriptPath,
           command: parsed.data.tool_name === "Bash" ? parsed.data.tool_input?.command : undefined,
         };
+      case "permission_wait":
+        return parsed.data.notification_type === "permission_prompt"
+          ? { type, transcriptPath, message: parsed.data.message }
+          : undefined;
       default:
         return { type, transcriptPath };
     }
   },
 
-  gateToolUse(event, gate) {
-    const reason = event.command ? pushGateDenial(event.command, gate) : undefined;
-
-    return reason
-      ? {
-          hookSpecificOutput: {
-            hookEventName: "PreToolUse",
-            permissionDecision: "deny",
-            permissionDecisionReason: reason,
-          },
-        }
-      : null;
+  denyToolUse(reason) {
+    return {
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: reason,
+      },
+    };
   },
 
   async lastMessage(transcriptPath) {

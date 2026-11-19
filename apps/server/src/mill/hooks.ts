@@ -7,6 +7,7 @@ import {
   type FollowupOutcome,
 } from "@openmill/core";
 import { getJob, getRun, latestRun, updateRun, type Job, type Run } from "@openmill/db";
+import { draftGateDenial, pushGateDenial } from "../agent/push-gate.ts";
 import type { Agent, HookEvent } from "../agent/types.ts";
 import { branchState, git, withRepoLock } from "../git.ts";
 import type { MillContext } from "./context.ts";
@@ -20,8 +21,10 @@ import {
   finish,
   inSession,
   notify,
+  send,
   transition,
 } from "./lifecycle.ts";
+import { permissionMode } from "./session.ts";
 
 const NO_PR_REASON = "the agent session ended without a draft PR";
 
@@ -66,15 +69,39 @@ async function dispatch(
   agent: Agent,
   event: HookEvent,
 ): Promise<unknown> {
+  if (run.waitingSince && event.type !== "permission_wait") {
+    updateRun(ctx.db, run.id, { waitingSince: null });
+  }
+
   switch (event.type) {
     case "stop":
       return onStop(ctx, job, run, agent, event);
-    case "tool_use":
-      return run.gate
-        ? agent.gateToolUse(event, { open: run.gate === "open", branch: job.branchName })
-        : null;
-    case "prompt":
-      onPrompt(ctx, job, run);
+    case "tool_use": {
+      const reason = event.command ? toolUseDenial(job, run, event.command) : undefined;
+
+      return reason ? agent.denyToolUse(reason) : null;
+    }
+    case "prompt": {
+      const firstPrompt = run.transcriptPath === null;
+
+      if (firstPrompt && event.autoMode === false && permissionMode(ctx, job) === "auto") {
+        await fail(
+          ctx,
+          job.key,
+          run,
+          `auto mode isn't available for ${run.model ?? "the default model"}; set permission_mode to bypass or pick a supported model`,
+        );
+      } else {
+        onPrompt(ctx, job, run);
+      }
+
+      return null;
+    }
+    case "permission_wait":
+      if (job.state === "running" && !run.waitingSince) {
+        updateRun(ctx.db, run.id, { waitingSince: new Date() });
+        send(ctx, "needs_permission", job.key, event.message ?? null);
+      }
 
       return null;
     case "session_end":
@@ -82,6 +109,15 @@ async function dispatch(
 
       return null;
   }
+}
+
+function toolUseDenial(job: Job, run: Run, command: string): string | undefined {
+  return (
+    draftGateDenial(command) ??
+    (run.gate
+      ? pushGateDenial(command, { open: run.gate === "open", branch: job.branchName })
+      : undefined)
+  );
 }
 
 async function onStop(
@@ -133,6 +169,7 @@ async function onStop(
     case "needs_input": {
       const transcript = event.transcriptPath ?? run.transcriptPath;
       const reason =
+        event.lastMessage ||
         (transcript && (await agent.lastMessage(transcript).catch(() => undefined))) ||
         (run.kind === "feature"
           ? "the agent stopped without a draft PR"

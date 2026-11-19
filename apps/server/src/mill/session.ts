@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { stackParent, type Effort } from "@openmill/core";
+import { stackParent, type Effort, type PermissionMode } from "@openmill/core";
 import {
   findJob,
   getJob,
@@ -21,6 +21,10 @@ import { ensureWorktree, fetchDefaultBranch, withRepoLock } from "../git.ts";
 import { jobDir } from "../paths.ts";
 import type { MillContext } from "./context.ts";
 import { closeWindow, fail, transition } from "./lifecycle.ts";
+
+export function permissionMode(ctx: MillContext, job: Job): PermissionMode {
+  return (job.permissionMode ?? ctx.config.permission_mode) as PermissionMode;
+}
 
 export function launch(ctx: MillContext, key: number): void {
   const job = transition(ctx, key, {
@@ -146,9 +150,9 @@ async function prepare(ctx: MillContext, job: Job, run: Run): Promise<RunInput> 
     prBaseBranch,
     model: run.model ?? undefined,
     effort: run.effort as Effort,
+    permissionMode: permissionMode(ctx, job),
     sessionId: run.sessionId as string,
     hookCommand: ctx.hookCommand,
-    pushGate: run.gate !== null,
   };
 }
 

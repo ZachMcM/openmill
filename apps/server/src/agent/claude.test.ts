@@ -13,9 +13,9 @@ const input: RunInput = {
   prBaseBranch: "main",
   model: "claude-opus-5-5",
   effort: "high",
+  permissionMode: "auto",
   sessionId: "0b7c4a52-5f0e-4c61-9d53-6a4c1f6f2a10",
   hookCommand: ["/usr/bin/node", "/opt/open mill/openmill.mjs"],
-  pushGate: false,
 };
 
 function settingsHooks(command: string[]) {
@@ -37,7 +37,8 @@ describe("claudeAgent.launch", () => {
 
   it("starts a new interactive session with the given id and the workflow prompt", () => {
     expect(command[0]).toBe("claude");
-    expect(command).toContain("--dangerously-skip-permissions");
+    expect(flag(command, "--permission-mode")).toBe("auto");
+    expect(command).not.toContain("--dangerously-skip-permissions");
     expect(command).not.toContain("-p");
     expect(flag(command, "--session-id")).toBe(input.sessionId);
     expect(flag(command, "--model")).toBe("claude-opus-5-5");
@@ -53,17 +54,27 @@ describe("claudeAgent.launch", () => {
 
     const hooks = settingsHooks(command);
 
-    expect(Object.keys(hooks).toSorted()).toEqual(["SessionEnd", "Stop", "UserPromptSubmit"]);
+    expect(Object.keys(hooks).toSorted()).toEqual([
+      "Notification",
+      "PreToolUse",
+      "SessionEnd",
+      "Stop",
+      "UserPromptSubmit",
+    ]);
     expect(hooks.Stop?.[0]?.hooks[0]?.command).toBe(
       "/usr/bin/node '/opt/open mill/openmill.mjs' hook Stop",
     );
-  });
-
-  it("adds a Bash PreToolUse hook only for gated runs", () => {
-    const hooks = settingsHooks(claudeAgent.launch({ ...input, pushGate: true }, "go").command);
-
     expect(hooks.PreToolUse?.[0]?.matcher).toBe("Bash");
     expect(hooks.PreToolUse?.[0]?.hooks[0]?.command).toMatch(/ hook PreToolUse$/);
+    expect(hooks.Notification?.[0]?.matcher).toBe("permission_prompt");
+  });
+
+  it("skips permission prompts in bypass mode", () => {
+    const bypass = claudeAgent.launch({ ...input, permissionMode: "bypass" }, "go").command;
+
+    expect(bypass).toContain("--dangerously-skip-permissions");
+    expect(bypass).not.toContain("--permission-mode");
+    expect(settingsHooks(bypass).PreToolUse?.[0]?.matcher).toBe("Bash");
   });
 
   it("leaves the model out when none is set", () => {
@@ -91,36 +102,53 @@ describe("claudeAgent.parseHook", () => {
   const payload = { session_id: "s1", transcript_path: "/t.jsonl" };
 
   it("reads stop, prompt, and session end events", () => {
-    expect(claudeAgent.parseHook("Stop", { ...payload, stop_hook_active: true })).toEqual({
+    expect(
+      claudeAgent.parseHook("Stop", {
+        ...payload,
+        stop_hook_active: true,
+        last_assistant_message: "Which database?",
+      }),
+    ).toEqual({
       type: "stop",
       transcriptPath: "/t.jsonl",
       stopHookActive: true,
+      lastMessage: "Which database?",
     });
-    expect(claudeAgent.parseHook("UserPromptSubmit", payload)?.type).toBe("prompt");
+    expect(
+      claudeAgent.parseHook("UserPromptSubmit", { ...payload, permission_mode: "default" }),
+    ).toEqual({ type: "prompt", transcriptPath: "/t.jsonl", autoMode: false });
     expect(claudeAgent.parseHook("SessionEnd", payload)?.type).toBe("session_end");
   });
 
-  it("reads the command of a Bash tool call and denies it when the gate holds it", () => {
-    const event = claudeAgent.parseHook("PreToolUse", {
-      ...payload,
-      tool_name: "Bash",
-      tool_input: { command: "git push" },
+  it("reads the command of a Bash tool call", () => {
+    expect(
+      claudeAgent.parseHook("PreToolUse", {
+        ...payload,
+        tool_name: "Bash",
+        tool_input: { command: "git push" },
+      }),
+    ).toEqual({ type: "tool_use", transcriptPath: "/t.jsonl", command: "git push" });
+  });
+
+  it("reports permission prompts and ignores other notifications", () => {
+    expect(
+      claudeAgent.parseHook("Notification", {
+        ...payload,
+        notification_type: "permission_prompt",
+        message: "Claude needs your permission to use Bash",
+      }),
+    ).toEqual({
+      type: "permission_wait",
+      transcriptPath: "/t.jsonl",
+      message: "Claude needs your permission to use Bash",
     });
-
-    expect(event).toEqual({ type: "tool_use", transcriptPath: "/t.jsonl", command: "git push" });
-
-    if (event?.type !== "tool_use") {
-      throw new Error("expected a tool_use event");
-    }
-
-    expect(claudeAgent.gateToolUse(event, { open: false, branch: "openmill/login" })).toMatchObject(
-      { hookSpecificOutput: { permissionDecision: "deny" } },
-    );
-    expect(claudeAgent.gateToolUse(event, { open: true, branch: "openmill/login" })).toBeNull();
+    expect(
+      claudeAgent.parseHook("Notification", { ...payload, notification_type: "idle_prompt" }),
+    ).toBeUndefined();
   });
 
   it("ignores unknown events and malformed payloads", () => {
-    expect(claudeAgent.parseHook("Notification", payload)).toBeUndefined();
+    expect(claudeAgent.parseHook("SubagentStop", payload)).toBeUndefined();
     expect(claudeAgent.parseHook("Stop", { transcript_path: "/t.jsonl" })).toBeUndefined();
   });
 });

@@ -1,4 +1,4 @@
-import type { Effort } from "@openmill/core";
+import type { Effort, PermissionMode } from "@openmill/core";
 
 export interface RunInput {
   docPath: string;
@@ -7,9 +7,9 @@ export interface RunInput {
   prBaseBranch: string;
   model?: string;
   effort: Effort;
+  permissionMode: PermissionMode;
   sessionId: string;
   hookCommand: string[];
-  pushGate: boolean;
 }
 
 export interface Launch {
@@ -23,16 +23,17 @@ export interface PushGate {
 }
 
 export type HookEvent =
-  | { type: "stop"; transcriptPath?: string; stopHookActive: boolean }
-  | { type: "prompt"; transcriptPath?: string }
+  | { type: "stop"; transcriptPath?: string; stopHookActive: boolean; lastMessage?: string }
+  | { type: "prompt"; transcriptPath?: string; autoMode?: boolean }
   | { type: "session_end"; transcriptPath?: string }
-  | { type: "tool_use"; transcriptPath?: string; command?: string };
+  | { type: "tool_use"; transcriptPath?: string; command?: string }
+  | { type: "permission_wait"; transcriptPath?: string; message?: string };
 
 export interface Agent {
   launch(input: RunInput, prompt: string): Launch;
   resume(input: RunInput, message?: string): Launch;
   parseHook(event: string, payload: unknown): HookEvent | undefined;
-  gateToolUse(event: Extract<HookEvent, { type: "tool_use" }>, gate: PushGate): unknown;
+  denyToolUse(reason: string): unknown;
   lastMessage(transcriptPath: string): Promise<string | undefined>;
   blockStop(reason: string): unknown;
   trust(repo: string): Promise<void>;
