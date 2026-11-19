@@ -197,7 +197,7 @@ program
 
 program
   .command("hook", { hidden: true })
-  .description("forward a Claude Code hook event to the server")
+  .description("forward an agent hook event to the server")
   .argument("<event>")
   .action(async (event: string) => {
     await hook(event, await readStdin());
@@ -223,7 +223,13 @@ config
   .argument("<key>", CONFIG_KEYS.join(", "))
   .argument("<value>")
   .action(async (key: string, value: string) => {
-    await unwrap((await connect()).config[":key"].$put({ param: { key }, json: { value } }));
+    const { note } = await unwrap(
+      (await connect()).config[":key"].$put({ param: { key }, json: { value } }),
+    );
+
+    if (note) {
+      console.log(note);
+    }
   });
 
 config
@@ -231,7 +237,11 @@ config
   .description("remove a value so the default applies")
   .argument("<key>", CONFIG_KEYS.join(", "))
   .action(async (key: string) => {
-    await unwrap((await connect()).config[":key"].$delete({ param: { key } }));
+    const { note } = await unwrap((await connect()).config[":key"].$delete({ param: { key } }));
+
+    if (note) {
+      console.log(note);
+    }
   });
 
 config.command("list").action(async () => {

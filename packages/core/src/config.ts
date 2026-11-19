@@ -1,10 +1,9 @@
-export const AGENTS = ["claude"] as const;
-export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+export const AGENTS = ["claude", "codex"] as const;
+export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export const PUSH_MODES = ["wait", "auto"] as const;
 export const PERMISSION_MODES = ["auto", "bypass"] as const;
 
 export type AgentName = (typeof AGENTS)[number];
-export type Effort = (typeof EFFORTS)[number];
 export type PushMode = (typeof PUSH_MODES)[number];
 export type PermissionMode = (typeof PERMISSION_MODES)[number];
 
@@ -13,7 +12,7 @@ export interface Config {
   agent: AgentName;
   permission_mode: PermissionMode;
   model?: string;
-  effort: Effort;
+  effort: string;
   notify_desktop: boolean;
   notify_command?: string;
   watch_interval: number;
@@ -69,7 +68,6 @@ function parseOneOf<T extends string>(name: string, values: readonly T[]) {
 }
 
 export const parseAgent = parseOneOf("agent", AGENTS);
-export const parseEffort = parseOneOf("effort", EFFORTS);
 export const parsePermissionMode = parseOneOf("permission_mode", PERMISSION_MODES);
 
 function parsePositiveInteger(name: string, value: string): ParsedValue<number> {
@@ -80,11 +78,15 @@ function parsePositiveInteger(name: string, value: string): ParsedValue<number> 
     : { ok: false, error: `${name} must be a positive integer` };
 }
 
-export function parseModel(value: string): ParsedValue<string> {
-  return value.trim() === ""
-    ? { ok: false, error: "model must not be empty" }
-    : { ok: true, value: value.trim() };
+function parseNonEmpty(name: string) {
+  return (value: string): ParsedValue<string> =>
+    value.trim() === ""
+      ? { ok: false, error: `${name} must not be empty` }
+      : { ok: true, value: value.trim() };
 }
+
+export const parseModel = parseNonEmpty("model");
+export const parseEffort = parseNonEmpty("effort");
 
 export function parseConfigValue(key: ConfigKey, value: string): ParsedValue<Config[ConfigKey]> {
   switch (key) {
@@ -147,6 +149,10 @@ export function resolveConfig(stored: unknown): Config {
     if (parsed.ok) {
       Object.assign(config, { [key]: parsed.value });
     }
+  }
+
+  if (config.agent === "claude" && !(CLAUDE_EFFORTS as readonly string[]).includes(config.effort)) {
+    config.effort = DEFAULT_CONFIG.effort;
   }
 
   return config;

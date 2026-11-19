@@ -1,9 +1,11 @@
 import { readFile, realpath, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { pluginDir } from "@openmill/assets";
+import { PLUGIN_NAME, pluginDir } from "@openmill/assets";
+import { READY_CHECKS } from "@openmill/core";
 import { z } from "zod";
 import { loadClaudeAgents } from "./agents.ts";
+import { lastTranscriptText, preToolUseDenial, runChecks, shellQuote } from "./shared.ts";
 import type { Agent, HookEvent, RunInput } from "./types.ts";
 
 const HOOK_TYPES = {
@@ -57,10 +59,6 @@ async function readConfig(path: string): Promise<z.infer<typeof configSchema>> {
   }
 }
 
-function shellQuote(value: string): string {
-  return /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`;
-}
-
 function hooksSettings(input: RunInput): string {
   const base = input.hookCommand.map(shellQuote).join(" ");
   const hook = (event: keyof typeof HOOK_TYPES) => ({
@@ -93,9 +91,23 @@ function sharedArgs(input: RunInput): string[] {
 }
 
 export const claudeAgent: Agent = {
+  presetSessionId: true,
+
+  ready() {
+    return runChecks(READY_CHECKS.claude);
+  },
+
+  async catalog() {
+    return undefined;
+  },
+
+  skillPrompt(skill, args) {
+    return `/${PLUGIN_NAME}:${skill} ${args}`;
+  },
+
   launch(input, prompt) {
     return {
-      command: ["claude", "--session-id", input.sessionId, ...sharedArgs(input), prompt],
+      command: ["claude", "--session-id", input.sessionId as string, ...sharedArgs(input), prompt],
       env: {},
     };
   },
@@ -105,7 +117,7 @@ export const claudeAgent: Agent = {
       command: [
         "claude",
         "--resume",
-        input.sessionId,
+        input.sessionId as string,
         ...sharedArgs(input),
         ...(message ? [message] : []),
       ],
@@ -148,42 +160,18 @@ export const claudeAgent: Agent = {
     }
   },
 
-  denyToolUse(reason) {
-    return {
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "deny",
-        permissionDecisionReason: reason,
-      },
-    };
-  },
+  denyToolUse: preToolUseDenial,
 
-  async lastMessage(transcriptPath) {
-    const lines = (await readFile(transcriptPath, "utf8")).split("\n");
+  lastMessage(transcriptPath) {
+    return lastTranscriptText(transcriptPath, (line) => {
+      const parsed = transcriptLineSchema.safeParse(line);
 
-    for (const line of lines.toReversed()) {
-      let json: unknown;
-
-      try {
-        json = JSON.parse(line);
-      } catch {
-        continue;
-      }
-
-      const parsed = transcriptLineSchema.safeParse(json);
-      const text = parsed.success
+      return parsed.success
         ? parsed.data.message.content
             .flatMap((block) => (block.type === "text" && block.text ? [block.text] : []))
             .join("\n")
-            .trim()
-        : "";
-
-      if (text) {
-        return text;
-      }
-    }
-
-    return undefined;
+        : undefined;
+    });
   },
 
   blockStop(reason) {

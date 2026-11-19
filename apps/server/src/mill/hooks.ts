@@ -6,7 +6,7 @@ import {
   type BranchState,
   type FollowupOutcome,
 } from "@openmill/core";
-import { getJob, getRun, latestRun, updateRun, type Job, type Run } from "@openmill/db";
+import { getJob, getRun, latestRun, updateJob, updateRun, type Job, type Run } from "@openmill/db";
 import { draftGateDenial, pushGateDenial } from "../agent/push-gate.ts";
 import type { Agent, HookEvent } from "../agent/types.ts";
 import { branchState, git, withRepoLock } from "../git.ts";
@@ -74,6 +74,13 @@ async function dispatch(
   }
 
   switch (event.type) {
+    case "session_start":
+      if (event.sessionId !== run.sessionId) {
+        updateRun(ctx.db, run.id, { sessionId: event.sessionId });
+        updateJob(ctx.db, job.key, { sessionId: event.sessionId });
+      }
+
+      return null;
     case "stop":
       return onStop(ctx, job, run, agent, event);
     case "tool_use": {

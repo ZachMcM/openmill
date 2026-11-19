@@ -7,8 +7,8 @@ describe("config", () => {
     expect(parseConfigValue("concurrency", "0").ok).toBe(false);
     expect(parseConfigValue("concurrency", "1.5").ok).toBe(false);
     expect(parseConfigValue("effort", "xhigh")).toEqual({ ok: true, value: "xhigh" });
-    expect(parseConfigValue("effort", "huge").ok).toBe(false);
-    expect(parseConfigValue("agent", "codex").ok).toBe(false);
+    expect(parseConfigValue("effort", " ").ok).toBe(false);
+    expect(parseConfigValue("agent", "codex")).toEqual({ ok: true, value: "codex" });
     expect(parseConfigValue("permission_mode", "auto")).toEqual({ ok: true, value: "auto" });
     expect(parseConfigValue("permission_mode", "bypass")).toEqual({ ok: true, value: "bypass" });
     expect(parseConfigValue("permission_mode", "manual").ok).toBe(false);
@@ -44,5 +44,10 @@ describe("config", () => {
       model: "sonnet",
       trusted_bots: ["a[bot]", "b[bot]"],
     });
+  });
+
+  it("resets an effort Claude doesn't support but leaves Codex efforts alone", () => {
+    expect(resolveConfig({ effort: "ultra" }).effort).toBe(DEFAULT_CONFIG.effort);
+    expect(resolveConfig({ agent: "codex", effort: "ultra" }).effort).toBe("ultra");
   });
 });

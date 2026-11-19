@@ -1,4 +1,4 @@
-import { AGENTS, EFFORTS, PERMISSION_MODES } from "@openmill/core";
+import { AGENTS, PERMISSION_MODES } from "@openmill/core";
 import { z } from "zod";
 
 export const addRequestSchema = z.object({
@@ -7,7 +7,7 @@ export const addRequestSchema = z.object({
   agent: z.enum(AGENTS).optional(),
   permissionMode: z.enum(PERMISSION_MODES).optional(),
   model: z.string().min(1).optional(),
-  effort: z.enum(EFFORTS).optional(),
+  effort: z.string().min(1).optional(),
   force: z.boolean().default(false),
   docs: z
     .array(

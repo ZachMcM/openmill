@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { stackParent, type Effort, type PermissionMode } from "@openmill/core";
+import { stackParent, type PermissionMode } from "@openmill/core";
 import {
   findJob,
   getJob,
@@ -16,8 +16,8 @@ import {
   type Run,
 } from "@openmill/db";
 import { followupPrompt, restackPrompt, startPrompt } from "../agent/prompt.ts";
-import type { RunInput } from "../agent/types.ts";
-import { ensureWorktree, fetchDefaultBranch, withRepoLock } from "../git.ts";
+import type { Agent, RunInput } from "../agent/types.ts";
+import { ensureWorktree, fetchDefaultBranch, git, withRepoLock } from "../git.ts";
 import { jobDir } from "../paths.ts";
 import type { MillContext } from "./context.ts";
 import { closeWindow, fail, transition } from "./lifecycle.ts";
@@ -39,17 +39,22 @@ export function launch(ctx: MillContext, key: number): void {
 
   const previous = latestRun(ctx.db, key);
   const next = job.nextRun;
-  const resume = job.sessionId !== null && (next?.resume ?? true);
+  const agent = job.agent ?? ctx.config.agent;
+  const resume = next?.resume ?? job.sessionId !== null;
   const run = insertRun(ctx.db, {
     jobKey: key,
-    agent: job.agent ?? ctx.config.agent,
+    agent,
     model: job.model ?? ctx.config.model ?? null,
     effort: job.effort ?? ctx.config.effort,
     kind: next?.kind ?? "feature",
     trigger: next?.trigger ?? null,
     gate: next?.gate ?? null,
     startSha: next?.startSha ?? null,
-    sessionId: resume ? job.sessionId : randomUUID(),
+    sessionId: resume
+      ? job.sessionId
+      : ctx.agents[agent]?.presetSessionId === false
+        ? null
+        : randomUUID(),
     transcriptPath: resume ? previous?.transcriptPath : null,
   });
 
@@ -75,10 +80,22 @@ async function spawn(
     throw new Error(`unknown agent ${run.agent}`);
   }
 
+  if (resume && !job.sessionId) {
+    throw new Error(
+      `the ${run.agent} session id was never recorded, so the session can't be resumed`,
+    );
+  }
+
+  const readiness = await agent.ready(permissionMode(ctx, job));
+
+  if (!readiness.ok) {
+    throw new Error(readiness.reason);
+  }
+
   const input = await prepare(ctx, job, run);
   const { command, env } = resume
     ? agent.resume(input, message)
-    : agent.launch(input, prompt(job, run, input));
+    : agent.launch(input, prompt(agent, job, run, input));
 
   await agent.trust(job.repoPath);
 
@@ -106,7 +123,7 @@ async function spawn(
   updateRun(ctx.db, run.id, { blockId });
 
   if (getJob(ctx.db, job.key)?.state === "running" && latestRun(ctx.db, job.key)?.id === run.id) {
-    updateJob(ctx.db, job.key, { sessionId: run.sessionId });
+    updateJob(ctx.db, job.key, { sessionId: getRun(ctx.db, run.id)?.sessionId ?? null });
   } else {
     await closeWindow(ctx, { ...run, blockId });
   }
@@ -143,31 +160,43 @@ async function prepare(ctx: MillContext, job: Job, run: Run): Promise<RunInput> 
     return branches.prBaseBranch as string;
   });
 
+  const [gitDir, gitCommonDir] = (
+    await git(job.worktreePath, [
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-dir",
+      "--git-common-dir",
+    ])
+  ).split("\n") as [string, string];
+
   return {
     docPath,
     projectPath,
     branch: job.branchName,
     prBaseBranch,
     model: run.model ?? undefined,
-    effort: run.effort as Effort,
+    effort: run.effort,
     permissionMode: permissionMode(ctx, job),
-    sessionId: run.sessionId as string,
+    sessionId: run.sessionId,
     hookCommand: ctx.hookCommand,
+    worktreePath: job.worktreePath,
+    gitDir,
+    gitCommonDir,
   };
 }
 
-function prompt(job: Job, run: Run, input: RunInput): string {
+function prompt(agent: Agent, job: Job, run: Run, input: RunInput): string {
   const push = run.gate === null;
 
   if (run.kind === "followup" && run.trigger && job.prUrl) {
-    return followupPrompt(input, job.prUrl, run.trigger, push);
+    return followupPrompt(agent, input, job.prUrl, run.trigger, push);
   }
 
   if (run.kind === "restack" && job.restack) {
     return restackPrompt(input, job.restack.base, job.restack.cut, push);
   }
 
-  return startPrompt(input);
+  return startPrompt(agent, input);
 }
 
 async function branchBase(
