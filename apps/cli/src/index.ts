@@ -65,7 +65,7 @@ program
   )
   .option(
     "--terminal <name>",
-    "terminal for these jobs: rex, herdr, or t3code",
+    "terminal for these jobs: rex, herdr, tmux, or t3code",
     option(parseTerminal),
   )
   .option("--model <name>", "model for these jobs", option(parseModel))
