@@ -5,13 +5,20 @@ describe("PR states", () => {
   it("moves done jobs to merged or closed", () => {
     expect(canTransition("done", "merged")).toBe(true);
     expect(canTransition("done", "closed")).toBe(true);
-    expect(canTransition("running", "merged")).toBe(false);
+  });
+
+  it("applies a merge or close from any live state", () => {
+    for (const from of ["queued", "running", "needs_input", "failed"] as const) {
+      expect(canTransition(from, "merged")).toBe(true);
+      expect(canTransition(from, "closed")).toBe(true);
+    }
   });
 
   it("lets a closed job reopen or be cancelled, and keeps merged terminal", () => {
     expect(canTransition("closed", "done")).toBe(true);
     expect(canTransition("closed", "cancelled")).toBe(true);
     expect(canTransition("closed", "queued")).toBe(false);
+    expect(canTransition("closed", "merged")).toBe(false);
     expect(canTransition("merged", "done")).toBe(false);
     expect(canTransition("merged", "queued")).toBe(false);
   });

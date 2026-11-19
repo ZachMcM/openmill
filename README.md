@@ -177,7 +177,7 @@ out of follow-up attempts, or has a PR whose checks all passed. Desktop notifica
 ```
 
 `event` is one of `needs_input`, `needs_permission`, `failed`, `ready_for_review`,
-`followup_ready`, or `followups_exhausted`.
+`followup_ready`, `followups_exhausted`, or `session_closed`.
 
 ## Design doc format
 

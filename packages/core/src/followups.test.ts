@@ -4,6 +4,7 @@ import {
   followupOutcome,
   followupAttempts,
   pushModeFor,
+  triggerCleared,
   type FollowupInput,
   type FollowupTrigger,
   type PastRun,
@@ -201,5 +202,26 @@ describe("followupOutcome", () => {
     }
 
     expect(followupOutcome({ ...pushed, progressed: false }, true, true)).toBe("needs_input");
+  });
+});
+
+describe("triggerCleared", () => {
+  const trigger: FollowupTrigger = {
+    reviewId: "r1",
+    threads: ["t1"],
+    checks: ["test"],
+    headSha: "h1",
+  };
+
+  it("is true once the trigger's checks pass and its threads are resolved", () => {
+    expect(triggerCleared(trigger, observation({ unresolvedThreads: ["t2"] }))).toBe(true);
+  });
+
+  it("is false while a trigger check still fails or a trigger thread is open", () => {
+    expect(triggerCleared(trigger, red)).toBe(false);
+    expect(
+      triggerCleared(trigger, observation({ checks: { state: "PENDING", checks: [running] } })),
+    ).toBe(false);
+    expect(triggerCleared(trigger, observation({ unresolvedThreads: ["t1"] }))).toBe(false);
   });
 });
