@@ -8,17 +8,18 @@ import {
   parsePermissionMode,
   type ParsedValue,
 } from "@openmill/core";
-import { InvalidArgumentError, Command } from "commander";
+import { Argument, InvalidArgumentError, Command } from "commander";
 import pkg from "../package.json" with { type: "json" };
-import { startServer } from "@openmill/server";
+import { NOTIFIER_TYPES, startServer, type NotifierType } from "@openmill/server";
 import type { Client } from "@openmill/server/client";
 import pc from "picocolors";
 import { connect, isRunning, localClient, stopServer } from "./connect.ts";
 import { collectDocs } from "./docs.ts";
 import { hook, readStdin } from "./hook.ts";
 import { install, uninstall, update } from "./install.ts";
+import { promptNotifiers } from "./notify-prompt.ts";
 import { fitLastColumn, table, unwrap } from "./output.ts";
-import { fail, jobState, spin, state, warn } from "./ui.ts";
+import { Cancelled, fail, jobState, spin, state, warn } from "./ui.ts";
 
 function option<T>(parse: (value: string) => ParsedValue<T>) {
   return (value: string): T => {
@@ -247,6 +248,89 @@ config.command("list").action(async () => {
     ),
   );
 });
+
+const notify = program.command("notify").description("send notifications to Discord and Slack");
+
+notify
+  .command("add")
+  .description("add a Discord or Slack webhook, or set one up interactively")
+  .addArgument(new Argument("[type]").choices(NOTIFIER_TYPES))
+  .argument("[url]", "incoming webhook URL")
+  .option("--name <name>", "name for this notifier (default: the type)")
+  .action(
+    async (
+      type: NotifierType | undefined,
+      url: string | undefined,
+      options: { name?: string },
+      command: Command,
+    ) => {
+      if (type && url) {
+        const name = options.name ?? type;
+
+        await unwrap((await connect()).notifiers.$post({ json: { name, type, url } }));
+        console.log(`added ${pc.bold(name)}`);
+
+        return;
+      }
+
+      if (type || !process.stdin.isTTY) {
+        command.help({ error: true });
+      }
+
+      try {
+        await promptNotifiers(await connect());
+      } catch (error) {
+        if (!(error instanceof Cancelled)) {
+          throw error;
+        }
+
+        process.exitCode = 1;
+      }
+    },
+  );
+
+notify.command("ls").action(async () => {
+  const { notifiers } = await unwrap((await connect()).notifiers.$get());
+
+  if (notifiers.length === 0) {
+    console.log("No notifiers. Run openmill notify add.");
+
+    return;
+  }
+
+  console.log(
+    table(
+      ["NAME", "TYPE", "URL"],
+      notifiers.map((entry) => [pc.bold(entry.name), entry.type, entry.url]),
+    ),
+  );
+});
+
+notify
+  .command("rm")
+  .argument("<name>")
+  .action(async (name: string) => {
+    await unwrap((await connect()).notifiers[":name"].$delete({ param: { name } }));
+    console.log(`removed ${pc.bold(name)}`);
+  });
+
+notify
+  .command("test")
+  .description("send a test message to one notifier, or to all of them")
+  .argument("[name]")
+  .action(async (name: string | undefined) => {
+    const { results } = await unwrap((await connect()).notifiers.test.$post({ json: { name } }));
+
+    for (const result of results) {
+      console.log(
+        `${result.name}  ${result.ok ? pc.green("ok") : pc.red(`failed: ${result.error}`)}`,
+      );
+    }
+
+    if (results.some((result) => !result.ok)) {
+      process.exitCode = 1;
+    }
+  });
 
 const server = program.command("server").description("manage the background server");
 

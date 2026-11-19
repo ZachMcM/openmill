@@ -4,11 +4,15 @@ import { join } from "node:path";
 import * as p from "@clack/prompts";
 import { EFFORTS, parseConfigValue } from "@openmill/core";
 import { readConfig, resolvePaths, writeConfigValue } from "@openmill/server";
+import type { Client } from "@openmill/server/client";
 import pc from "picocolors";
 import pkg from "../package.json" with { type: "json" };
-import { localClient, serverStatus, stopServer } from "./connect.ts";
+import { connect, localClient, serverStatus, stopServer } from "./connect.ts";
+import { promptNotifiers } from "./notify-prompt.ts";
+import { unwrap } from "./output.ts";
 import { installPlugin, uninstallPlugin, writeMarketplace } from "./plugin.ts";
 import { hasCommand, run, runInherited, runOrThrow } from "./system.ts";
+import { answer, Cancelled } from "./ui.ts";
 import {
   installedGlobalVersion,
   isInside,
@@ -25,18 +29,8 @@ export interface UninstallOptions extends InstallOptions {
   purge: boolean;
 }
 
-class Cancelled extends Error {}
-
 function interactive(options: InstallOptions): boolean {
   return !options.yes && Boolean(process.stdin.isTTY);
-}
-
-function answer<T>(value: T): Exclude<T, symbol> {
-  if (p.isCancel(value)) {
-    throw new Cancelled();
-  }
-
-  return value as Exclude<T, symbol>;
 }
 
 async function step(title: string, task: () => Promise<string | undefined>): Promise<void> {
@@ -220,6 +214,35 @@ async function promptConfig(path: string): Promise<void> {
   await writeConfigValue(path, "effort", effort);
 }
 
+async function setUpNotifiers(): Promise<void> {
+  let client: Client;
+
+  try {
+    client = await connect();
+  } catch {
+    p.log.warn("Couldn't start the server to set up notifications. Run openmill notify add later.");
+
+    return;
+  }
+
+  try {
+    const { notifiers } = await unwrap(client.notifiers.$get());
+
+    if (notifiers.length > 0) {
+      p.note(
+        notifiers.map((entry) => `${entry.name}  ${entry.type}  ${entry.url}`).join("\n"),
+        "Notifications",
+      );
+    } else {
+      await promptNotifiers(client);
+    }
+  } finally {
+    // The server started from this process's binary, which may be a temporary npx copy, so stop it
+    // and let the next command start it from the installed one.
+    await stopServer(client);
+  }
+}
+
 export async function install(options: InstallOptions): Promise<void> {
   const paths = resolvePaths();
 
@@ -243,6 +266,7 @@ export async function install(options: InstallOptions): Promise<void> {
 
     if (interactive(options)) {
       await promptConfig(paths.config);
+      await setUpNotifiers();
     }
 
     p.note(

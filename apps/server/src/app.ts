@@ -2,9 +2,17 @@ import { isConfigKey, parseConfigValue } from "@openmill/core";
 import { Hono } from "hono";
 import { validator } from "hono/validator";
 import type { z } from "zod";
-import { addRequestSchema, configSetSchema, hookRequestSchema, jobQuerySchema } from "./api.ts";
+import {
+  addRequestSchema,
+  configSetSchema,
+  hookRequestSchema,
+  jobQuerySchema,
+  notifierTestSchema,
+} from "./api.ts";
 import { ApiError } from "./errors.ts";
 import type { Mill } from "./mill.ts";
+import { maskUrl, notifierEntrySchema } from "./notifier-store.ts";
+import type { NotifierEntry } from "./notifier/types.ts";
 
 function issues(error: z.ZodError): string {
   return error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ");
@@ -18,6 +26,10 @@ function validate<Target extends "json" | "query", T extends z.ZodType>(target: 
       ? (parsed.data as z.infer<T>)
       : c.json({ error: issues(parsed.error) }, 400);
   });
+}
+
+function masked(entries: NotifierEntry[]) {
+  return { notifiers: entries.map((entry) => ({ ...entry, url: maskUrl(entry.url) })) };
 }
 
 export interface AppOptions {
@@ -93,7 +105,17 @@ export function createApp(mill: Mill, { version, onShutdown }: AppOptions) {
       }
 
       return c.json({ config: await mill.setConfig(key, undefined) });
-    });
+    })
+    .get("/notifiers", (c) => c.json(masked(mill.listNotifiers())))
+    .post("/notifiers", validate("json", notifierEntrySchema), async (c) =>
+      c.json(masked(await mill.addNotifier(c.req.valid("json")))),
+    )
+    .delete("/notifiers/:name", async (c) =>
+      c.json(masked(await mill.removeNotifier(c.req.param("name")))),
+    )
+    .post("/notifiers/test", validate("json", notifierTestSchema), async (c) =>
+      c.json({ results: await mill.testNotifiers(c.req.valid("json").name) }),
+    );
 }
 
 export type AppType = ReturnType<typeof createApp>;

@@ -55,3 +55,5 @@ export const hookRequestSchema = z.object({
   runId: z.number().int().positive(),
   payload: z.unknown(),
 });
+
+export const notifierTestSchema = z.object({ name: z.string().min(1).optional() });

@@ -2,7 +2,8 @@ import type { Config } from "@openmill/core";
 import type { Db } from "@openmill/db";
 import type { Agent } from "../agent/types.ts";
 import type { GitHub } from "../github.ts";
-import type { Notify } from "../notify.ts";
+import type { Notify } from "../notifier/index.ts";
+import type { NotifierEntry } from "../notifier/types.ts";
 import type { Paths } from "../paths.ts";
 import type { Terminal } from "../terminal/types.ts";
 
@@ -15,6 +16,7 @@ export interface MillContext {
   hookCommand: string[];
   log: (message: string) => void;
   notifier: Notify;
+  notifiers: NotifierEntry[];
   config: Config;
   preparing: Set<number>;
   staleHeads: Map<number, string>;
