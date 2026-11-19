@@ -4,6 +4,7 @@ import { conflictReason, decideConflict, type ConflictInput } from "./conflict.t
 const done: ConflictInput = {
   state: "done",
   restacking: false,
+  parentRestacking: false,
   blockedReason: null,
   base: "main",
   mergeable: false,
@@ -24,6 +25,7 @@ describe("decideConflict", () => {
 
   it("never flags while a restack is pending", () => {
     expect(decideConflict({ ...done, restacking: true })).toBe("none");
+    expect(decideConflict({ ...done, parentRestacking: true })).toBe("none");
   });
 
   it("changes nothing while GitHub is still computing mergeability", () => {

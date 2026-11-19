@@ -114,6 +114,7 @@ describe("codexAgent.parseHook", () => {
       transcriptPath: hooks.Stop.transcript_path,
       stopHookActive: false,
       lastMessage: "Should sessions expire after 30 days or never?",
+      pendingWork: false,
     });
   });
 

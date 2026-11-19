@@ -71,6 +71,7 @@ export const runs = sqliteTable(
     trigger: text({ mode: "json" }).$type<TriggerRecord>(),
     gate: text().$type<GateRecord>(),
     startSha: text(),
+    restack: text({ mode: "json" }).$type<RestackRecord>(),
     sessionId: text(),
     blockId: text(),
     transcriptPath: text(),
@@ -121,6 +122,7 @@ export interface NextRunRecord {
   startSha: string | null;
   resume: boolean;
   message?: string;
+  restack?: RestackRecord;
 }
 
 export interface RestackRecord {

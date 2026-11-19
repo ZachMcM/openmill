@@ -171,7 +171,8 @@ gate as review follow-ups.
 
 openmill sends a notification when a job needs input, waits on a permission prompt, fails, opens
 its first draft PR, has a follow-up ready to push, runs out of follow-up attempts, or has a PR
-whose checks all passed. Every notification goes to the desktop, `notify_command`, and each
+whose checks all passed. It notifies only when you need to act, plus `pr_opened` once per job.
+Every notification goes to the desktop, `notify_command`, and each
 Discord or Slack connector. Desktop notifications use
 `osascript` on macOS and `notify-send` on Linux. Turn them off with
 `openmill config set notify_desktop false`.
@@ -191,7 +192,7 @@ Discord or Slack connector. Desktop notifications use
 ```
 
 `event` is one of `needs_input`, `needs_permission`, `failed`, `ready_for_review`,
-`followup_ready`, `followups_exhausted`, `pr_opened`, or `session_closed`.
+`followup_ready`, `followups_exhausted`, or `pr_opened`.
 
 #### Discord and Slack
 

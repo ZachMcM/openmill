@@ -27,7 +27,13 @@ export interface PushGate {
 
 export type HookEvent =
   | { type: "session_start"; sessionId: string; transcriptPath?: string }
-  | { type: "stop"; transcriptPath?: string; stopHookActive: boolean; lastMessage?: string }
+  | {
+      type: "stop";
+      transcriptPath?: string;
+      stopHookActive: boolean;
+      lastMessage?: string;
+      pendingWork?: boolean;
+    }
   | { type: "prompt"; transcriptPath?: string; autoMode?: boolean }
   | { type: "session_end"; transcriptPath?: string }
   | { type: "tool_use"; transcriptPath?: string; command?: string }

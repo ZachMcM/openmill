@@ -16,6 +16,8 @@ const HOOK_TYPES = {
   Notification: "permission_wait",
 } as const satisfies Record<string, HookEvent["type"]>;
 
+const FINISHED_TASK_STATUSES = new Set(["completed", "failed", "killed"]);
+
 const SESSION_HOOKS = ["Stop", "UserPromptSubmit", "SessionEnd"] as const;
 
 const hookPayloadSchema = z.object({
@@ -23,6 +25,7 @@ const hookPayloadSchema = z.object({
   transcript_path: z.string().optional(),
   stop_hook_active: z.boolean().optional(),
   last_assistant_message: z.string().optional(),
+  background_tasks: z.array(z.looseObject({ type: z.string(), status: z.string() })).optional(),
   permission_mode: z.string().optional(),
   notification_type: z.string().optional(),
   message: z.string().optional(),
@@ -142,6 +145,9 @@ export const claudeAgent: Agent = {
           transcriptPath,
           stopHookActive: parsed.data.stop_hook_active ?? false,
           lastMessage: parsed.data.last_assistant_message,
+          pendingWork: parsed.data.background_tasks?.some(
+            (task) => !FINISHED_TASK_STATUSES.has(task.status),
+          ),
         };
       case "prompt":
         return { type, transcriptPath, autoMode: mode === undefined ? undefined : mode === "auto" };

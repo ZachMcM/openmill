@@ -15,11 +15,13 @@ export interface MillContext {
   github: GitHub;
   hookCommand: string[];
   log: (message: string) => void;
+  debug: (message: string) => void;
   notifier: Notify;
   notifiers: NotifierEntry[];
   config: Config;
   preparing: Set<number>;
   staleHeads: Map<number, string>;
+  tasklessStops: Set<number>;
   schedule: () => void;
   refresh: (job: Job) => Promise<PrObservation | undefined>;
 }

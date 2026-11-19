@@ -123,6 +123,26 @@ describe("claudeAgent.parseHook", () => {
     expect(claudeAgent.parseHook("SessionEnd", payload)?.type).toBe("session_end");
   });
 
+  it("reports pending work when a background task is still running at Stop", () => {
+    const stop = (tasks?: Array<{ status: string }>) =>
+      claudeAgent.parseHook("Stop", {
+        ...payload,
+        background_tasks: tasks?.map((task, index) => ({
+          id: `t${index}`,
+          type: "subagent",
+          ...task,
+        })),
+      });
+
+    expect(stop([{ status: "completed" }, { status: "running" }])).toMatchObject({
+      pendingWork: true,
+    });
+    expect(
+      stop([{ status: "completed" }, { status: "failed" }, { status: "killed" }]),
+    ).toMatchObject({ pendingWork: false });
+    expect(stop()).toMatchObject({ type: "stop", pendingWork: undefined });
+  });
+
   it("reads the command of a Bash tool call", () => {
     expect(
       claudeAgent.parseHook("PreToolUse", {
