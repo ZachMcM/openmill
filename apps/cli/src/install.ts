@@ -2,7 +2,17 @@ import { realpathSync } from "node:fs";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import * as p from "@clack/prompts";
-import { EFFORTS, parseConfigValue } from "@openmill/core";
+import {
+  AGENTS,
+  CLAUDE_EFFORTS,
+  CODEX_MODELS_COMMAND,
+  DEFAULT_CONFIG,
+  READY_CHECKS,
+  parseCodexModels,
+  parseConfigValue,
+  type AgentName,
+  type ModelEfforts,
+} from "@openmill/core";
 import { readConfig, resolvePaths, writeConfigValue } from "@openmill/server";
 import type { Client } from "@openmill/server/client";
 import pc from "picocolors";
@@ -10,7 +20,13 @@ import pkg from "../package.json" with { type: "json" };
 import { connect, localClient, serverStatus, stopServer } from "./connect.ts";
 import { promptNotifiers } from "./notify-prompt.ts";
 import { unwrap } from "./output.ts";
-import { installPlugin, uninstallPlugin, writeMarketplace } from "./plugin.ts";
+import {
+  installCodexPlugin,
+  installPlugin,
+  uninstallCodexPlugin,
+  uninstallPlugin,
+  writeMarketplace,
+} from "./plugin.ts";
 import { hasCommand, run, runInherited, runOrThrow } from "./system.ts";
 import { answer, Cancelled } from "./ui.ts";
 import {
@@ -46,7 +62,7 @@ async function step(title: string, task: () => Promise<string | undefined>): Pro
   }
 }
 
-async function checkPrerequisites(): Promise<{ claude: boolean }> {
+async function checkPrerequisites(): Promise<AgentName[]> {
   if (!meetsNodeVersion(process.versions.node)) {
     throw new Error(
       `openmill needs Node ${MIN_NODE_MAJOR} or later, found ${process.versions.node}`,
@@ -69,19 +85,35 @@ async function checkPrerequisites(): Promise<{ claude: boolean }> {
     p.log.warn(`gh isn't signed in. Run ${pc.bold("gh auth login")} before queuing jobs.`);
   }
 
-  return { claude: await findClaude() };
+  return readyAgents();
 }
 
-async function findClaude(): Promise<boolean> {
-  const claude = await hasCommand("claude");
+async function passes(checks: Array<[string, ...string[]]>): Promise<boolean> {
+  for (const [command, ...args] of checks) {
+    if (!(await run(command, args)).ok) {
+      return false;
+    }
+  }
 
-  if (!claude) {
+  return true;
+}
+
+async function readyAgents(): Promise<AgentName[]> {
+  const ready: AgentName[] = [];
+
+  for (const agent of AGENTS) {
+    if (await passes(READY_CHECKS[agent])) {
+      ready.push(agent);
+    }
+  }
+
+  if (ready.length === 0) {
     p.log.warn(
-      "The claude CLI isn't on PATH, so the plugin step is skipped. Install it before queuing jobs.",
+      "No agent CLI is ready. Install and sign in to claude or codex before queuing jobs.",
     );
   }
 
-  return claude;
+  return ready;
 }
 
 function runningBin(): string {
@@ -114,15 +146,22 @@ async function installGlobal(): Promise<string | undefined> {
   return pkg.version;
 }
 
-async function setUpPlugin(title: string, home: string): Promise<void> {
-  await step(title, async () => {
-    const dir = join(home, "plugin");
+const AGENT_LABELS: Record<AgentName, string> = { claude: "Claude", codex: "Codex" };
 
+async function setUpPlugins(agents: AgentName[], home: string): Promise<void> {
+  const dir = join(home, "plugin");
+
+  if (agents.length > 0) {
     await writeMarketplace(dir, pkg.version);
-    await installPlugin(dir);
+  }
 
-    return undefined;
-  });
+  for (const agent of agents) {
+    await step(`Installing the ${AGENT_LABELS[agent]} plugin`, async () => {
+      await (agent === "claude" ? installPlugin(dir) : installCodexPlugin(dir));
+
+      return undefined;
+    });
+  }
 }
 
 async function stopRunningServer(): Promise<void> {
@@ -139,7 +178,7 @@ async function stopRunningServer(): Promise<void> {
   });
 }
 
-const MODELS = [
+const CLAUDE_MODELS = [
   { value: "claude-opus-5-5", label: "Opus 5.5" },
   { value: "claude-sonnet-5-5", label: "Sonnet 5.5" },
   { value: "claude-haiku-5-5", label: "Haiku 5.5" },
@@ -149,7 +188,26 @@ const MODELS = [
 const DEFAULT_MODEL = "";
 const OTHER_MODEL = "other";
 
-async function promptConfig(path: string): Promise<void> {
+async function codexModels(): Promise<ModelEfforts[]> {
+  const [command, ...args] = CODEX_MODELS_COMMAND;
+
+  return parseCodexModels(JSON.parse(await runOrThrow(command, args)));
+}
+
+async function promptConfig(path: string, agents: AgentName[]): Promise<void> {
+  if (agents.length > 1) {
+    const current = await readConfig(path);
+    const agent = answer(
+      await p.select({
+        message: "Which agent should run jobs by default?",
+        options: agents.map((value) => ({ value, label: AGENT_LABELS[value] })),
+        initialValue: agents.includes(current.agent) ? current.agent : agents[0],
+      }),
+    );
+
+    await writeConfigValue(path, "agent", agent);
+  }
+
   const current = await readConfig(path);
 
   const concurrency = parseConfigValue(
@@ -171,20 +229,26 @@ async function promptConfig(path: string): Promise<void> {
     await writeConfigValue(path, "concurrency", concurrency.value);
   }
 
+  const codex = current.agent === "codex" ? await codexModels().catch(() => []) : [];
+  const models =
+    current.agent === "codex"
+      ? codex
+          .filter((entry) => entry.visible)
+          .map((entry) => ({ value: entry.model, label: entry.model }))
+      : [{ value: DEFAULT_MODEL, label: "Agent default" }, ...CLAUDE_MODELS];
   const custom =
-    current.model && !MODELS.some((model) => model.value === current.model)
+    current.model && !models.some((model) => model.value === current.model)
       ? [{ value: current.model, label: current.model }]
       : [];
   let model = answer(
     await p.select({
       message: "Which model should agents use?",
       options: [
-        { value: DEFAULT_MODEL, label: "Agent default" },
+        ...models,
         ...custom,
-        ...MODELS,
         { value: OTHER_MODEL, label: "Other", hint: "type a model id" },
       ],
-      initialValue: current.model ?? DEFAULT_MODEL,
+      initialValue: current.model ?? models[0]?.value,
     }),
   );
 
@@ -203,13 +267,35 @@ async function promptConfig(path: string): Promise<void> {
 
   await writeConfigValue(path, "model", model === DEFAULT_MODEL ? undefined : model);
 
-  const effort = answer(
-    await p.select({
-      message: "How much effort should agents spend?",
-      options: EFFORTS.map((value) => ({ value })),
-      initialValue: current.effort,
-    }),
-  );
+  const levels: Omit<ModelEfforts, "model" | "visible"> | undefined =
+    current.agent === "codex"
+      ? codex.find((entry) => entry.model === model)
+      : { efforts: CLAUDE_EFFORTS, defaultEffort: DEFAULT_CONFIG.effort };
+  let effort: string;
+
+  if (levels) {
+    effort = answer(
+      await p.select({
+        message: "How much effort should agents spend?",
+        options: levels.efforts.map((value) => ({ value })),
+        initialValue: levels.efforts.includes(current.effort)
+          ? current.effort
+          : levels.defaultEffort,
+      }),
+    );
+  } else {
+    effort = answer(
+      await p.text({
+        message: "Effort level",
+        initialValue: current.effort,
+        validate: (input = "") => {
+          const parsed = parseConfigValue("effort", input);
+
+          return parsed.ok ? undefined : parsed.error;
+        },
+      }),
+    ).trim();
+  }
 
   await writeConfigValue(path, "effort", effort);
 }
@@ -249,7 +335,7 @@ export async function install(options: InstallOptions): Promise<void> {
   p.intro(pc.inverse(` openmill ${pkg.version} `));
 
   try {
-    const { claude } = await checkPrerequisites();
+    const agents = await checkPrerequisites();
 
     await step("Installing openmill globally", installGlobal);
     await step("Creating the openmill home", async () => {
@@ -258,19 +344,24 @@ export async function install(options: InstallOptions): Promise<void> {
       return paths.home;
     });
 
-    if (claude) {
-      await setUpPlugin("Installing the Claude plugin", paths.home);
-    }
-
+    await setUpPlugins(agents, paths.home);
     await stopRunningServer();
 
+    if (agents.length === 1) {
+      await writeConfigValue(paths.config, "agent", agents[0]);
+    }
+
     if (interactive(options)) {
-      await promptConfig(paths.config);
+      await promptConfig(paths.config, agents);
       await setUpNotifiers();
     }
 
     p.note(
-      "openmill add docs/feature.md\nopenmill ls\n\nThe first job's window shows Claude Code's Bypass Permissions warning.\nRun openmill open <id> and accept it once.",
+      `openmill add docs/feature.md\nopenmill ls${
+        agents.includes("claude")
+          ? "\n\nThe first Claude job's window shows Claude Code's Bypass Permissions warning.\nRun openmill open <id> and accept it once."
+          : ""
+      }`,
       "Next steps",
     );
     p.outro("openmill is installed");
@@ -320,9 +411,7 @@ export async function update(): Promise<void> {
 
     p.log.info(`Already on ${pkg.version}`);
 
-    if (await findClaude()) {
-      await setUpPlugin("Refreshing the Claude plugin", resolvePaths().home);
-    }
+    await setUpPlugins(await readyAgents(), resolvePaths().home);
 
     const status = await serverStatus(localClient());
 
@@ -359,11 +448,20 @@ export async function uninstall(options: UninstallOptions): Promise<void> {
     if (await hasCommand("claude")) {
       await step("Removing the Claude plugin", async () => {
         await uninstallPlugin();
-        await rm(join(paths.home, "plugin"), { recursive: true, force: true });
 
         return undefined;
       });
     }
+
+    if (await hasCommand("codex")) {
+      await step("Removing the Codex plugin", async () => {
+        await uninstallCodexPlugin();
+
+        return undefined;
+      });
+    }
+
+    await rm(join(paths.home, "plugin"), { recursive: true, force: true });
 
     await step("Removing the global package", async () => {
       await run("npm", ["uninstall", "-g", pkg.name]);

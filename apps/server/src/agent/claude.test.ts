@@ -16,6 +16,9 @@ const input: RunInput = {
   permissionMode: "auto",
   sessionId: "0b7c4a52-5f0e-4c61-9d53-6a4c1f6f2a10",
   hookCommand: ["/usr/bin/node", "/opt/open mill/openmill.mjs"],
+  worktreePath: "/home/me/.openmill/worktrees/app/login",
+  gitDir: "/home/me/app/.git/worktrees/login",
+  gitCommonDir: "/home/me/app/.git",
 };
 
 function settingsHooks(command: string[]) {
@@ -33,7 +36,7 @@ function flag(command: string[], name: string): string | undefined {
 }
 
 describe("claudeAgent.launch", () => {
-  const { command } = claudeAgent.launch(input, startPrompt(input));
+  const { command } = claudeAgent.launch(input, startPrompt(claudeAgent, input));
 
   it("starts a new interactive session with the given id and the workflow prompt", () => {
     expect(command[0]).toBe("claude");

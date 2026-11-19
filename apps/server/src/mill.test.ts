@@ -76,7 +76,7 @@ async function reconcile(term: Terminal, gh = github()): Promise<void> {
     config: DEFAULT_CONFIG,
     notifiers: [],
     terminal: term,
-    agents: { claude: {} as Agent },
+    agents: { claude: {} as Agent, codex: {} as Agent },
     github: gh,
     hookCommand: ["openmill"],
   });

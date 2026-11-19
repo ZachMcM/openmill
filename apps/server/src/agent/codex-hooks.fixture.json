@@ -1,0 +1,48 @@
+{
+  "SessionStart": {
+    "session_id": "01a1f1f7-271e-7ff2-884d-0522638c9b93",
+    "transcript_path": "/home/me/.codex/sessions/2026/11/18/rollout-2026-11-18T23-01-08-01a1f1f7-271e-7ff2-884d-0522638c9b93.jsonl",
+    "cwd": "/home/me/.openmill/worktrees/app/login",
+    "hook_event_name": "SessionStart",
+    "model": "gpt-6.1-sol",
+    "permission_mode": "bypassPermissions",
+    "source": "startup"
+  },
+  "Stop": {
+    "session_id": "01a1f1f7-271e-7ff2-884d-0522638c9b93",
+    "turn_id": "01a1f1f7-8ddf-77f1-ba79-a530fc4d072d",
+    "transcript_path": "/home/me/.codex/sessions/2026/11/18/rollout-2026-11-18T23-01-08-01a1f1f7-271e-7ff2-884d-0522638c9b93.jsonl",
+    "cwd": "/home/me/.openmill/worktrees/app/login",
+    "hook_event_name": "Stop",
+    "model": "gpt-6.1-sol",
+    "permission_mode": "bypassPermissions",
+    "stop_hook_active": false,
+    "last_assistant_message": "Should sessions expire after 30 days or never?"
+  },
+  "PreToolUse": {
+    "session_id": "01a1f1f7-271e-7ff2-884d-0522638c9b93",
+    "turn_id": "01a1f1f7-8ddf-77f1-ba79-a530fc4d072d",
+    "transcript_path": "/home/me/.codex/sessions/2026/11/18/rollout-2026-11-18T23-01-08-01a1f1f7-271e-7ff2-884d-0522638c9b93.jsonl",
+    "cwd": "/home/me/.openmill/worktrees/app/login",
+    "hook_event_name": "PreToolUse",
+    "model": "gpt-6.1-sol",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "Bash",
+    "tool_input": { "command": "gh pr ready 12" },
+    "tool_use_id": "exec-ddc5a22d-0d5c-4ce3-9717-22285914fda8"
+  },
+  "PermissionRequest": {
+    "session_id": "01a1f1f7-271e-7ff2-884d-0522638c9b93",
+    "turn_id": "01a1f1f7-8ddf-77f1-ba79-a530fc4d072d",
+    "transcript_path": "/home/me/.codex/sessions/2026/11/18/rollout-2026-11-18T23-01-08-01a1f1f7-271e-7ff2-884d-0522638c9b93.jsonl",
+    "cwd": "/home/me/.openmill/worktrees/app/login",
+    "hook_event_name": "PermissionRequest",
+    "model": "gpt-6.1-sol",
+    "permission_mode": "default",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "touch /home/me/outside.txt",
+      "description": "write a file outside the workspace"
+    }
+  }
+}

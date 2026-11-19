@@ -32,10 +32,11 @@ Use pnpm for everything. Never use npm or yarn, and never edit `pnpm-lock.yaml` 
 - Only the server runs `git`, `gh`, `rex`, and agents. Only the server sends notifications,
   including Discord and Slack webhook requests. The exceptions are in the CLI.
   `openmill install`, `update`, and `uninstall` run before a server exists. They may check that
-  `git`, `gh`, and `rex` are installed and run `npm` and `claude plugin`, and nothing else.
-  `openmill install` may start the server through the typed client to set up notifiers. The
-  hidden `openmill hook` command runs inside agent sessions and only forwards hook JSON to the
-  server.
+  `git`, `gh`, and `rex` are installed, run each agent's readiness check, run `npm`,
+  `claude plugin`, `codex plugin`, and `codex debug models`, and copy the Codex review agents,
+  and nothing else. `openmill install` may start the server through the typed client to set up
+  notifiers. The hidden `openmill hook` command runs inside agent sessions and only forwards hook
+  JSON to the server.
 - Every terminal implements the `Terminal` interface in `apps/server/src/terminal/types.ts`, and
   every agent implements the `Agent` interface in `apps/server/src/agent/types.ts`. Code specific
   to one terminal or agent stays in its adapter.

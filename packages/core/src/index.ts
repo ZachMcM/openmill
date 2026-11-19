@@ -1,3 +1,4 @@
+export * from "./agents.ts";
 export * from "./config.ts";
 export * from "./design-doc.ts";
 export * from "./followups.ts";

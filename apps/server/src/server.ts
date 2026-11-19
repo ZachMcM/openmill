@@ -7,6 +7,7 @@ import { createApp } from "./app.ts";
 import { readConfig } from "./config-store.ts";
 import { ghCli } from "./github.ts";
 import { claudeAgent } from "./agent/claude.ts";
+import { codexAgent } from "./agent/codex.ts";
 import { Mill } from "./mill.ts";
 import { readNotifiers } from "./notifier-store.ts";
 import { resolvePaths } from "./paths.ts";
@@ -40,7 +41,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       config: await readConfig(paths.config),
       notifiers: await readNotifiers(paths.notifiers, options.log ?? (() => {})),
       terminal: createRexTerminal(paths.rexSession),
-      agents: { claude: claudeAgent },
+      agents: { claude: claudeAgent, codex: codexAgent },
       github: ghCli,
       hookCommand: options.hookCommand,
       log: options.log,
