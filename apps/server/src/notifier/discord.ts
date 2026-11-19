@@ -15,6 +15,7 @@ const COLORS: Record<NotificationEvent, number> = {
   ready_for_review: GREEN,
   pr_opened: GREEN,
   followup_ready: BLUE,
+  session_closed: BLUE,
 };
 
 export const WEBHOOK_PREFIXES = [

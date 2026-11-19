@@ -90,6 +90,7 @@ export class Mill {
       preparing: new Set(),
       staleHeads: new Map(),
       schedule: () => this.schedule(),
+      refresh: (job) => this.watcher.refresh(job),
     };
     this.watcher = new PrWatcher({
       db: options.db,

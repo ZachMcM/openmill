@@ -180,7 +180,7 @@ Discord or Slack connector. Desktop notifications use
 ```
 
 `event` is one of `needs_input`, `needs_permission`, `failed`, `ready_for_review`,
-`followup_ready`, `followups_exhausted`, or `pr_opened`.
+`followup_ready`, `followups_exhausted`, `pr_opened`, or `session_closed`.
 
 #### Discord and Slack
 

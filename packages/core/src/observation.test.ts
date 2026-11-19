@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  checksSucceeded,
   diffObservation,
+  failingChecks,
   observe,
   type PrCheck,
   type PrObservation,
@@ -106,5 +108,28 @@ describe("diffObservation", () => {
       latestReviewId: "r1",
     });
     expect(diffObservation(undefined, observe(untrustedOnly, []))).toEqual([]);
+  });
+});
+
+describe("cancelled checks", () => {
+  const cancelled: PrCheck = { name: "ci", status: "COMPLETED", conclusion: "CANCELLED" };
+  const failure: PrCheck = { name: "ci", status: "COMPLETED", conclusion: "FAILURE" };
+
+  it("ignores a cancelled run that a passing run of the same check replaced", () => {
+    const checks = { state: "SUCCESS", checks: [cancelled, done] };
+
+    expect(failingChecks(checks)).toEqual([]);
+    expect(checksSucceeded(checks)).toBe(true);
+  });
+
+  it("reports a replacing run's failure once", () => {
+    expect(failingChecks({ state: "FAILURE", checks: [cancelled, failure] })).toEqual(["ci"]);
+  });
+
+  it("treats a cancelled run with no replacement as unfinished", () => {
+    const checks = { state: "FAILURE", checks: [cancelled] };
+
+    expect(failingChecks(checks)).toEqual([]);
+    expect(checksSucceeded(checks)).toBe(false);
   });
 });

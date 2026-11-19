@@ -82,6 +82,12 @@ export class PrWatcher {
     }
   }
 
+  async refresh(job: Job): Promise<PrObservation | undefined> {
+    const ref = job.prUrl ? parsePrUrl(job.prUrl) : undefined;
+
+    return ref ? (await this.pollRepo([{ job, ref }])).get(job.key) : undefined;
+  }
+
   async close(): Promise<void> {
     this.closed = true;
     clearTimeout(this.timer);
@@ -109,7 +115,7 @@ export class PrWatcher {
     );
   }
 
-  private async pollRepo(targets: Target[]): Promise<void> {
+  private async pollRepo(targets: Target[]): Promise<Map<number, PrObservation>> {
     const { github } = this.options;
     const [first] = targets as [Target, ...Target[]];
     const { host, owner, name } = first.ref;
@@ -125,6 +131,8 @@ export class PrWatcher {
     if (remaining < limit * LOW_BUDGET) {
       this.waitFor(resetAt, `${remaining} of ${limit} GitHub GraphQL points left`);
     }
+
+    const observations = new Map<number, PrObservation>();
 
     for (const { job, ref } of targets) {
       const pr = response.prs.get(ref.number);
@@ -147,8 +155,14 @@ export class PrWatcher {
         pages.push(...appendPage(pr.snapshot, json));
       }
 
-      this.record(job, pr.snapshot);
+      const observation = this.record(job, pr.snapshot);
+
+      if (observation) {
+        observations.set(job.key, observation);
+      }
     }
+
+    return observations;
   }
 
   private async repoFailed(repo: string, targets: Target[], error: unknown): Promise<void> {
@@ -171,12 +185,12 @@ export class PrWatcher {
     this.options.log(`PR watcher waiting until ${resetAt.toISOString()}: ${why}`);
   }
 
-  private record(job: Job, snapshot: PrSnapshot): void {
+  private record(job: Job, snapshot: PrSnapshot): PrObservation | undefined {
     const { db, config, debug, onChange } = this.options;
     const current = getJob(db, job.key);
 
     if (!current || current.prUrl !== job.prUrl || job.prUrl === null) {
-      return;
+      return undefined;
     }
 
     const trustedBots = config().trusted_bots;
@@ -206,5 +220,7 @@ export class PrWatcher {
     if (events.length > 0) {
       onChange(current, events, observation);
     }
+
+    return observation;
   }
 }

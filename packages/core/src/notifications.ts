@@ -1,4 +1,4 @@
-import { checksSucceeded, type PrEvent, type PrObservation } from "./observation.ts";
+import { checksSucceeded, type PrObservation } from "./observation.ts";
 import type { JobState } from "./states.ts";
 
 export const NOTIFICATION_EVENTS = [
@@ -9,6 +9,7 @@ export const NOTIFICATION_EVENTS = [
   "followup_ready",
   "followups_exhausted",
   "pr_opened",
+  "session_closed",
 ] as const;
 
 export type NotificationEvent = (typeof NOTIFICATION_EVENTS)[number];
@@ -35,10 +36,7 @@ export function notificationFor(
 
 export function prNotificationFor(
   state: JobState,
-  event: PrEvent,
   observation: PrObservation,
 ): NotificationEvent | null {
-  return state === "done" && event === "checks_finished" && checksSucceeded(observation.checks)
-    ? "ready_for_review"
-    : null;
+  return state === "done" && checksSucceeded(observation.checks) ? "ready_for_review" : null;
 }

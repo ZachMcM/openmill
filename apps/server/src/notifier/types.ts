@@ -42,4 +42,5 @@ export const EVENT_LABELS: Record<NotificationEvent, string> = {
   followup_ready: "follow-up ready to push",
   followups_exhausted: "follow-ups exhausted",
   pr_opened: "draft PR opened",
+  session_closed: "session closed",
 };
