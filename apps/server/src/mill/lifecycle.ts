@@ -113,7 +113,7 @@ export async function endRun(
     }
   }
 
-  updateRun(ctx.db, run.id, { endedAt: run.endedAt ?? new Date(), result });
+  updateRun(ctx.db, run.id, { endedAt: run.endedAt ?? new Date(), result, waitingSince: null });
 }
 
 export async function closeWindow(ctx: MillContext, run: Run): Promise<void> {

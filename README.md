@@ -43,14 +43,18 @@ To remove openmill, run `openmill uninstall`. It stops the server and removes th
 global package. It keeps `~/.openmill` unless you pass `--purge`.
 
 > [!CAUTION]
-> openmill runs agents with full local permissions. Every session starts with
-> `--dangerously-skip-permissions`, so an agent can run any command and edit any file your user can.
-> The workflow skill only opens draft PRs and never merges, but nothing else stops it.
+> openmill starts Claude in auto mode by default, where Claude's own classifier approves or blocks
+> each action. With `permission_mode` set to `bypass`, sessions start with
+> `--dangerously-skip-permissions`, so an agent can run any command and edit any file your user
+> can. In both modes a hook denies `gh pr ready` and `gh pr merge`, but an agent that sets out to
+> get around it can.
 
-The first time a job starts, Claude Code shows its Bypass Permissions warning in the job's window.
-Run `openmill open <id>` and accept it once. openmill never accepts it for you. openmill also
-marks each repo you queue as trusted in `~/.claude.json`, so Claude doesn't ask to trust every
-new worktree.
+Auto mode needs a model Claude's classifier supports. Claude 2.1.328 silently drops to manual mode
+for other models, so openmill fails the run with a message that says to pick a supported model or
+set `permission_mode` to `bypass`. In bypass mode, the first job shows Claude Code's Bypass
+Permissions warning in the job's window. Run `openmill open <id>` and accept it once. openmill
+never accepts it for you. openmill also marks each repo you queue as trusted in `~/.claude.json`,
+so Claude doesn't ask to trust every new worktree.
 
 ## Usage
 
@@ -75,7 +79,9 @@ openmill server stop
 that has an `id`, skips files without one, and pulls in each doc's dependencies even when they live
 elsewhere. Queuing a doc that is still `queued` or `blocked` updates it. A doc that already started
 is rejected unless you pass `--force`, which cancels its session and queues it from scratch.
-`--base`, `--agent`, `--model`, and `--effort` override the config for the docs in that call.
+`--base`, `--agent`, `--permission-mode`, `--model`, and `--effort` override the config for the
+docs in that call. A job keeps the agent and permission mode it was queued with, so changing the
+config later doesn't change jobs already queued or running.
 
 The first command that needs the server starts it in the background. State lives in
 `~/.openmill`, or in `OPENMILL_HOME` when it's set.
@@ -89,6 +95,10 @@ once to open the PR or ask its question. If it stops again, the job moves to `ne
 you get a notification. Answer in the window and the job is `running` again. A `needs_input` job
 doesn't count against `concurrency`. If the session ends without a PR, the job fails, and
 `openmill requeue <id>` resumes that session in a new window.
+
+When the agent waits on a permission prompt for a few seconds, you get one notification and the
+job stays `running`. `openmill ls` and `openmill show` print it as
+`running, waiting for permission (4m)` until the agent moves on.
 
 Windows stay open after a job ends and keep running when the server restarts. When a run ends,
 openmill saves the window's text to the job's `runs` folder.
@@ -143,7 +153,7 @@ gate as review follow-ups.
 
 ### Notifications
 
-openmill sends a notification when a job needs input, fails, has a follow-up ready to push, runs
+openmill sends a notification when a job needs input, waits on a permission prompt, fails, has a follow-up ready to push, runs
 out of follow-up attempts, or has a PR whose checks all passed. Desktop notifications use
 `osascript` on macOS and `notify-send` on Linux. Turn them off with
 `openmill config set notify_desktop false`.
@@ -162,8 +172,8 @@ out of follow-up attempts, or has a PR whose checks all passed. Desktop notifica
 }
 ```
 
-`event` is one of `needs_input`, `failed`, `ready_for_review`, `followup_ready`, or
-`followups_exhausted`.
+`event` is one of `needs_input`, `needs_permission`, `failed`, `ready_for_review`,
+`followup_ready`, or `followups_exhausted`.
 
 ## Design doc format
 
@@ -202,6 +212,7 @@ Config lives in `~/.openmill/config.json`. Read and change it with `openmill con
 | ------------------- | -------- | ----------------------------------------------------------- |
 | `concurrency`       | `2`      | Jobs that can run at once. `needs_input` jobs don't count   |
 | `agent`             | `claude` | The coding agent                                            |
+| `permission_mode`   | `auto`   | `auto` for Claude's auto mode, or `bypass` to skip prompts  |
 | `model`             | unset    | Model passed to the agent. Unset uses the agent's default   |
 | `effort`            | `medium` | `low`, `medium`, `high`, `xhigh`, or `max`                  |
 | `notify_desktop`    | `true`   | Send desktop notifications                                  |

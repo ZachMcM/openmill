@@ -3,6 +3,7 @@ import type { JobState } from "./states.ts";
 
 export const NOTIFICATION_EVENTS = [
   "needs_input",
+  "needs_permission",
   "failed",
   "ready_for_review",
   "followup_ready",

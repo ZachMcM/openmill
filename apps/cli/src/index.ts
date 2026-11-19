@@ -5,6 +5,7 @@ import {
   parseAgent,
   parseEffort,
   parseModel,
+  parsePermissionMode,
   type ParsedValue,
 } from "@openmill/core";
 import { InvalidArgumentError, Command } from "commander";
@@ -17,7 +18,7 @@ import { collectDocs } from "./docs.ts";
 import { hook, readStdin } from "./hook.ts";
 import { install, uninstall, update } from "./install.ts";
 import { fitLastColumn, table, unwrap } from "./output.ts";
-import { fail, spin, state, warn } from "./ui.ts";
+import { fail, jobState, spin, state, warn } from "./ui.ts";
 
 function option<T>(parse: (value: string) => ParsedValue<T>) {
   return (value: string): T => {
@@ -55,6 +56,11 @@ program
   .option("--repo <path>", "target repo (default: the git root of the current directory)")
   .option("--base <branch>", "base branch for jobs with no dependency")
   .option("--agent <name>", "agent for these jobs", option(parseAgent))
+  .option(
+    "--permission-mode <mode>",
+    "permission mode for these jobs: auto or bypass",
+    option(parsePermissionMode),
+  )
   .option("--model <name>", "model for these jobs", option(parseModel))
   .option("--effort <level>", "effort for these jobs", option(parseEffort))
   .option("--force", "re-queue jobs that already started", false)
@@ -73,6 +79,7 @@ program
             repo: options.repo ?? process.cwd(),
             base: options.base,
             agent: options.agent,
+            permissionMode: options.permissionMode,
             model: options.model,
             effort: options.effort,
             force: options.force,
@@ -103,7 +110,7 @@ program
           header,
           jobs.map((job) => [
             pc.bold(job.id),
-            state(job.state),
+            jobState(job),
             pc.dim(job.sessionId ?? ""),
             job.prUrl ?? "",
             job.reason ?? "",
@@ -124,7 +131,7 @@ program
     const fields: Array<[string, string]> = [
       ["id", pc.bold(job.id)],
       ["repo", job.repo],
-      ["state", `${state(job.state)}${job.reason ? ` (${job.reason})` : ""}`],
+      ["state", `${jobState(job)}${job.reason ? ` (${job.reason})` : ""}`],
       ["branch", `${job.branch}${job.prBaseBranch ? ` -> ${job.prBaseBranch}` : ""}`],
       ["worktree", job.worktree],
       ["window", job.window ?? "-"],

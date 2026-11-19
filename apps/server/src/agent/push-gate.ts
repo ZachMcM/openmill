@@ -3,6 +3,9 @@ import type { PushGate } from "./types.ts";
 export const GATE_CLOSED_REASON =
   "Pushing and posting on the PR are held for human review. Commit your changes, stop, and say the changes are ready for review.";
 
+export const DRAFT_GATE_REASON =
+  "openmill keeps PRs in draft and never merges them. Leave the PR as a draft and stop.";
+
 const SEPARATORS = new Set([";", "&", "|", "\n", "(", ")", "`"]);
 
 const WRAPPERS = new Set(["env", "command", "exec", "sudo", "nohup", "time"]);
@@ -123,6 +126,12 @@ function ghApiWrites(args: string[]): boolean {
   return args.some((arg) => GH_FIELD_FLAGS.has(arg.split("=")[0] as string));
 }
 
+function withoutRepo(args: string[]): string[] {
+  return args.filter(
+    (arg, index) => !/^(-R|--repo)(=|$)/.test(arg) && !/^(-R|--repo)$/.test(args[index - 1] ?? ""),
+  );
+}
+
 function postsToPr(name: string, args: string[]): boolean {
   if (name === "git") {
     return gitSubcommand(args)?.name === "push";
@@ -132,9 +141,7 @@ function postsToPr(name: string, args: string[]): boolean {
     return false;
   }
 
-  const rest = args.filter(
-    (arg, index) => !/^(-R|--repo)(=|$)/.test(arg) && !/^(-R|--repo)$/.test(args[index - 1] ?? ""),
-  );
+  const rest = withoutRepo(args);
   const [group, action] = rest;
 
   return (
@@ -168,6 +175,19 @@ function forcePushDenial(args: string[], branch: string): string | undefined {
   }
 
   return `The only force-push allowed is \`git push --force-with-lease origin ${branch}\`.`;
+}
+
+export function draftGateDenial(script: string): string | undefined {
+  for (const words of splitCommands(script)) {
+    const found = program(words);
+    const [group, action] = found?.name === "gh" ? withoutRepo(found.args) : [];
+
+    if (group === "pr" && (action === "ready" || action === "merge")) {
+      return DRAFT_GATE_REASON;
+    }
+  }
+
+  return undefined;
 }
 
 export function pushGateDenial(script: string, gate: PushGate): string | undefined {

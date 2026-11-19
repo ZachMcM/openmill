@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { GATE_CLOSED_REASON, pushGateDenial } from "./claude-push-gate.ts";
+import {
+  DRAFT_GATE_REASON,
+  GATE_CLOSED_REASON,
+  draftGateDenial,
+  pushGateDenial,
+} from "./push-gate.ts";
 
 const closed = { open: false, branch: "openmill/login" };
 const open = { open: true, branch: "openmill/login" };
@@ -59,5 +64,28 @@ describe("pushGateDenial once the gate is open", () => {
     "git push origin :openmill/login",
   ])("denies the force-push %s", (command) => {
     expect(pushGateDenial(command, open)).toMatch(/--force-with-lease origin openmill\/login/);
+  });
+});
+
+describe("draftGateDenial", () => {
+  it.each([
+    "gh pr ready",
+    "gh pr ready 12 --undo",
+    "gh pr merge 12 --squash",
+    "env GH_TOKEN=x gh pr ready 12",
+    "pnpm check && gh pr merge --auto",
+    "gh -R owner/repo pr ready 12",
+    "gh pr -R owner/repo merge 12",
+  ])("denies %s", (command) => {
+    expect(draftGateDenial(command)).toBe(DRAFT_GATE_REASON);
+  });
+
+  it.each([
+    "gh pr view 12",
+    "gh pr create --draft --base main",
+    "gh pr edit 12 --title fix",
+    'echo "gh pr merge"',
+  ])("allows %s", (command) => {
+    expect(draftGateDenial(command)).toBeUndefined();
   });
 });

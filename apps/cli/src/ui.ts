@@ -19,6 +19,17 @@ export function state(value: string): string {
   return (STATE_COLORS[value as JobState] ?? pc.reset)(value);
 }
 
+export function jobState(job: { state: string; waitingSince: number | null }): string {
+  if (job.waitingSince === null) {
+    return state(job.state);
+  }
+
+  const minutes = Math.floor((Date.now() - job.waitingSince) / 60_000);
+  const waited = minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h`;
+
+  return `${state(job.state)}, ${pc.yellow(`waiting for permission (${waited})`)}`;
+}
+
 export function warn(message: string): void {
   console.error(`${pc.yellow("warning:")} ${message}`);
 }

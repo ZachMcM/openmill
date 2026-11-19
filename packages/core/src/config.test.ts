@@ -9,6 +9,9 @@ describe("config", () => {
     expect(parseConfigValue("effort", "xhigh")).toEqual({ ok: true, value: "xhigh" });
     expect(parseConfigValue("effort", "huge").ok).toBe(false);
     expect(parseConfigValue("agent", "codex").ok).toBe(false);
+    expect(parseConfigValue("permission_mode", "auto")).toEqual({ ok: true, value: "auto" });
+    expect(parseConfigValue("permission_mode", "bypass")).toEqual({ ok: true, value: "bypass" });
+    expect(parseConfigValue("permission_mode", "manual").ok).toBe(false);
     expect(parseConfigValue("model", "opus")).toEqual({ ok: true, value: "opus" });
     expect(parseConfigValue("notify_desktop", "false")).toEqual({ ok: true, value: false });
     expect(parseConfigValue("notify_desktop", "no").ok).toBe(false);
@@ -26,6 +29,7 @@ describe("config", () => {
 
   it("fills defaults and drops unknown or invalid stored values", () => {
     expect(resolveConfig(undefined)).toEqual(DEFAULT_CONFIG);
+    expect(DEFAULT_CONFIG.permission_mode).toBe("auto");
     expect(
       resolveConfig({
         concurrency: 3,
