@@ -23,6 +23,7 @@ const repo = "/src/app";
 
 function terminal(blocks: TerminalBlock[] | Error): Terminal {
   return {
+    ready: vi.fn<Terminal["ready"]>(async () => ({ ok: true })),
     spawn: vi.fn<Terminal["spawn"]>(),
     close: vi.fn<Terminal["close"]>(async () => {}),
     list: vi.fn<Terminal["list"]>(async () => {
@@ -47,7 +48,7 @@ function github(drafts: Record<string, string> = {}): GitHub {
   };
 }
 
-function job(id: string, state: string, blockId: string | null): number {
+function job(id: string, state: string, blockId: string | null, terminalName?: string): number {
   const row = insertJob(db, {
     id,
     repoPath: repo,
@@ -56,6 +57,7 @@ function job(id: string, state: string, blockId: string | null): number {
     branchName: `openmill/${id}`,
     worktreePath: `/wt/${id}`,
     state,
+    terminal: terminalName,
     sessionId: `session-${id}`,
   });
 
@@ -70,13 +72,13 @@ function job(id: string, state: string, blockId: string | null): number {
   return row.key;
 }
 
-async function reconcile(term: Terminal, gh = github()): Promise<void> {
+async function reconcile(term: Terminal, gh = github(), herdr = terminal([])): Promise<void> {
   const mill = new Mill({
     db,
     paths,
     config: DEFAULT_CONFIG,
     notifiers: [],
-    terminal: term,
+    terminals: { rex: term, herdr },
     agents: { claude: {} as Agent, codex: {} as Agent },
     github: gh,
     hookCommand: ["openmill"],
@@ -145,14 +147,20 @@ describe("startup reconciliation", () => {
     expect(readFileSync(capture, "utf8")).toBe("screen of block:b");
   });
 
-  it("fails running jobs with the reason when rex can't be reached", async () => {
+  it("fails only the jobs whose terminal can't be reached", async () => {
     const key = job("login", "running", "block:a");
     const done = job("signup", "done", "block:b");
+    const herdrJob = job("search", "running", "w1:p2", "herdr");
 
-    await reconcile(terminal(new Error("rex not found")));
+    await reconcile(
+      terminal(new Error("rex not found")),
+      github(),
+      terminal([{ blockId: "w1:p2", label: "search", alive: true }]),
+    );
 
     expect(getJob(db, key)?.state).toBe("failed");
     expect(latestRun(db, key)?.result?.reason).toBe("rex not found");
     expect(getJob(db, done)?.state).toBe("done");
+    expect(getJob(db, herdrJob)?.state).toBe("running");
   });
 });

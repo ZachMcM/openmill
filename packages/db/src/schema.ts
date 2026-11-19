@@ -26,6 +26,7 @@ export const jobs = sqliteTable(
     worktreePath: text().notNull(),
     agent: text(),
     permissionMode: text(),
+    terminal: text(),
     model: text(),
     effort: text(),
     state: text().notNull().default("queued"),

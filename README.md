@@ -17,8 +17,9 @@ already use.
 ## Install
 
 Requires macOS or Linux, Node 24 or later, `git`, the GitHub CLI (`gh`) signed in with
-`gh auth login`, [Rex](https://www.superlogical.com/rex), and at least one signed-in agent CLI:
-Claude Code (`claude`) or Codex (`codex`).
+`gh auth login`, a terminal ([Rex](https://www.superlogical.com/rex) or
+[herdr](https://herdr.dev)), and at least one signed-in agent CLI: Claude Code (`claude`) or
+Codex (`codex`).
 
 ```sh
 npx openmill install
@@ -65,7 +66,7 @@ so Claude doesn't ask to trust every new worktree.
 ```sh
 openmill add docs/login.md        # queue a doc (and the docs it depends on)
 openmill ls                       # list jobs
-openmill open login               # focus the job's Rex window
+openmill open login               # focus the job's window
 openmill show login               # worktree, window, session, and transcript
 openmill cancel login             # close the window and cancel the job
 openmill requeue login            # resume a failed job's session in a new window
@@ -84,16 +85,17 @@ openmill server stop
 that has an `id`, skips files without one, and pulls in each doc's dependencies even when they live
 elsewhere. Queuing a doc that is still `queued` or `blocked` updates it. A doc that already started
 is rejected unless you pass `--force`, which cancels its session and queues it from scratch.
-`--base`, `--agent`, `--permission-mode`, `--model`, and `--effort` override the config for the
-docs in that call. A job keeps the agent and permission mode it was queued with, so changing the
-config later doesn't change jobs already queued or running.
+`--base`, `--agent`, `--permission-mode`, `--terminal`, `--model`, and `--effort` override the
+config for the docs in that call. A job keeps the agent, permission mode, and terminal it was
+queued with, so changing the config later doesn't change jobs already queued or running.
 
 The first command that needs the server starts it in the background. State lives in
 `~/.openmill`, or in `OPENMILL_HOME` when it's set.
 
-Every job runs as an interactive agent session in its own window in the `openmill` Rex
-session. New windows open in the background, so a new job never takes your screen. Run
-`openmill open <id>` to watch a job, and type into its window to take it over.
+Every job runs as an interactive agent session in its own window: a window in the `openmill`
+Rex session, or a tab in the `openmill` workspace of your default herdr server, which must
+already be running. New windows open in the background, so a new job never takes your screen.
+Run `openmill open <id>` to watch a job, and type into its window to take it over.
 
 A job is done when its branch has a draft PR. When the agent stops without one, openmill asks it
 once to open the PR or ask its question. If it stops again, the job moves to `needs_input` and
@@ -247,6 +249,7 @@ Config lives in `~/.openmill/config.json`. Read and change it with `openmill con
 | `concurrency`       | `2`      | Jobs that can run at once. `needs_input` jobs don't count     |
 | `agent`             | `claude` | The coding agent                                              |
 | `permission_mode`   | `auto`   | `auto` for the agent's auto mode, or `bypass` to skip prompts |
+| `terminal`          | `rex`    | `rex` or `herdr`, where job windows open                      |
 | `model`             | unset    | Model passed to the agent. Unset uses the agent's default     |
 | `effort`            | `medium` | A level the agent and model support (see below)               |
 | `notify_desktop`    | `true`   | Send desktop notifications                                    |
@@ -262,8 +265,8 @@ Pick one with `openmill config set agent claude` or `openmill config set agent c
 with `openmill add --agent`.
 
 - **Claude Code.** Effort is `low`, `medium`, `high`, `xhigh`, or `max`.
-- **Codex.** Every job runs as an interactive `codex` session in a Rex window with the same hooks
-  and gates as Claude. Effort must be a level the model lists in `codex debug models`, and
+- **Codex.** Every job runs as an interactive `codex` session in a terminal window with the same
+  hooks and gates as Claude. Effort must be a level the model lists in `codex debug models`, and
   `openmill add` rejects one it doesn't support. When `config set agent` or `config set model`
   leaves the stored effort unsupported, openmill resets it to the model's default and says so.
   In `auto` mode Codex runs sandboxed with on-request approvals that its auto-reviewer decides,

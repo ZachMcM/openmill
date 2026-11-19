@@ -6,6 +6,7 @@ import {
   parseEffort,
   parseModel,
   parsePermissionMode,
+  parseTerminal,
   type ParsedValue,
 } from "@openmill/core";
 import { Argument, InvalidArgumentError, Command } from "commander";
@@ -62,6 +63,7 @@ program
     "permission mode for these jobs: auto or bypass",
     option(parsePermissionMode),
   )
+  .option("--terminal <name>", "terminal for these jobs: rex or herdr", option(parseTerminal))
   .option("--model <name>", "model for these jobs", option(parseModel))
   .option("--effort <level>", "effort for these jobs", option(parseEffort))
   .option("--force", "re-queue jobs that already started", false)
@@ -81,6 +83,7 @@ program
             base: options.base,
             agent: options.agent,
             permissionMode: options.permissionMode,
+            terminal: options.terminal,
             model: options.model,
             effort: options.effort,
             force: options.force,
@@ -150,7 +153,7 @@ program
 
 program
   .command("open")
-  .description("focus a job's window in Rex")
+  .description("focus a job's window in its terminal")
   .argument("<id>")
   .action(async (id: string) => {
     await unwrap(

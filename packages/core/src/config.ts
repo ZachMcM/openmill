@@ -2,15 +2,18 @@ export const AGENTS = ["claude", "codex"] as const;
 export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export const PUSH_MODES = ["wait", "auto"] as const;
 export const PERMISSION_MODES = ["auto", "bypass"] as const;
+export const TERMINALS = ["rex", "herdr"] as const;
 
 export type AgentName = (typeof AGENTS)[number];
 export type PushMode = (typeof PUSH_MODES)[number];
 export type PermissionMode = (typeof PERMISSION_MODES)[number];
+export type TerminalName = (typeof TERMINALS)[number];
 
 export interface Config {
   concurrency: number;
   agent: AgentName;
   permission_mode: PermissionMode;
+  terminal: TerminalName;
   model?: string;
   effort: string;
   notify_desktop: boolean;
@@ -25,6 +28,7 @@ export const CONFIG_KEYS = [
   "concurrency",
   "agent",
   "permission_mode",
+  "terminal",
   "model",
   "effort",
   "notify_desktop",
@@ -41,6 +45,7 @@ export const DEFAULT_CONFIG: Config = {
   concurrency: 2,
   agent: "claude",
   permission_mode: "auto",
+  terminal: "rex",
   effort: "medium",
   notify_desktop: true,
   trusted_bots: [],
@@ -64,6 +69,7 @@ function parseOneOf<T extends string>(name: string, values: readonly T[]) {
 
 export const parseAgent = parseOneOf("agent", AGENTS);
 export const parsePermissionMode = parseOneOf("permission_mode", PERMISSION_MODES);
+export const parseTerminal = parseOneOf("terminal", TERMINALS);
 
 function parsePositiveInteger(name: string, value: string): ParsedValue<number> {
   const number = Number(value);
@@ -91,6 +97,8 @@ export function parseConfigValue(key: ConfigKey, value: string): ParsedValue<Con
       return parseAgent(value);
     case "permission_mode":
       return parsePermissionMode(value);
+    case "terminal":
+      return parseTerminal(value);
     case "model":
       return parseModel(value);
     case "effort":

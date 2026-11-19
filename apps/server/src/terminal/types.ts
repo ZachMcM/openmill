@@ -1,3 +1,5 @@
+import type { Readiness } from "../agent/types.ts";
+
 export interface SpawnInput {
   label: string;
   cwd: string;
@@ -13,6 +15,7 @@ export interface TerminalBlock {
 }
 
 export interface Terminal {
+  ready(): Promise<Readiness>;
   spawn(input: SpawnInput): Promise<string>;
   close(blockId: string): Promise<void>;
   list(): Promise<TerminalBlock[]>;
