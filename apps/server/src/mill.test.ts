@@ -43,6 +43,7 @@ function github(drafts: Record<string, string> = {}): GitHub {
     graphql: vi.fn<GitHub["graphql"]>(),
     graphqlResetAt: vi.fn<GitHub["graphqlResetAt"]>(),
     editPrBase: vi.fn<GitHub["editPrBase"]>(),
+    token: vi.fn<GitHub["token"]>().mockRejectedValue(new Error("no token in tests")),
   };
 }
 

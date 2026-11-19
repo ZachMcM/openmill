@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { exec } from "./exec.ts";
 
 export interface GitHub {
@@ -10,6 +11,7 @@ export interface GitHub {
   ): Promise<unknown>;
   graphqlResetAt(repo: string, host: string): Promise<Date>;
   editPrBase(repo: string, prUrl: string, base: string): Promise<void>;
+  token(host: string): Promise<string>;
 }
 
 export const ghCli: GitHub = {
@@ -54,5 +56,9 @@ export const ghCli: GitHub = {
 
   async editPrBase(repo, prUrl, base) {
     await exec("gh", ["pr", "edit", prUrl, "--base", base], repo);
+  },
+
+  async token(host) {
+    return (await exec("gh", ["auth", "token", "--hostname", host], homedir())).trim();
   },
 };

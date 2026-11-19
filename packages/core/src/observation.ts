@@ -9,6 +9,7 @@ export interface PrCheck {
   name: string;
   status: string;
   conclusion: string | null;
+  kind?: "status";
 }
 
 export interface PrChecks {

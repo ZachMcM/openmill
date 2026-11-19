@@ -94,11 +94,12 @@ export const prObservations = sqliteTable("pr_observations", {
   unresolvedThreads: text({ mode: "json" }).notNull().$type<string[]>(),
   latestReviewId: text(),
   readyNotifiedSha: text(),
+  mergeable: integer({ mode: "boolean" }),
 });
 
 export interface ChecksRecord {
   state: string | null;
-  checks: Array<{ name: string; status: string; conclusion: string | null }>;
+  checks: Array<{ name: string; status: string; conclusion: string | null; kind?: "status" }>;
 }
 
 export type RunKindRecord = "feature" | "followup" | "restack";

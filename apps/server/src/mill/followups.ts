@@ -1,8 +1,11 @@
 import {
   SESSION_STATES,
   WATCHED_STATES,
+  conflictReason,
+  decideConflict,
   decideFollowup,
   prNotificationFor,
+  stackedOn,
   pushModeFor,
   type FollowupDecision,
   type JobState,
@@ -63,6 +66,28 @@ export function applyPrEvents(
 
   if (next && transition(ctx, key, { to: next, fields: { nextRun: null } }) && next !== "done") {
     void prEnded(ctx, job, next, observation);
+  }
+}
+
+export function applyMergeable(ctx: MillContext, key: number, mergeable: boolean | null): void {
+  const job = getJob(ctx.db, key);
+
+  if (!job?.prBaseBranch) {
+    return;
+  }
+
+  const decision = decideConflict({
+    state: job.state as JobState,
+    restacking: job.restack !== null,
+    blockedReason: job.blockedReason,
+    base: job.prBaseBranch,
+    mergeable,
+  });
+
+  if (decision === "flag") {
+    needsInput(ctx, key, conflictReason(job.prBaseBranch));
+  } else if (decision === "clear") {
+    transition(ctx, key, { from: ["needs_input"], to: "done", fields: { blockedReason: null } });
   }
 }
 
@@ -322,14 +347,19 @@ async function landRestack(ctx: MillContext, key: number, before: string): Promi
 
 function markDependents(ctx: MillContext, parent: Job, restack: RestackRecord): void {
   for (const job of listJobs(ctx.db)) {
-    if (
-      job.repoPath === parent.repoPath &&
-      job.key !== parent.key &&
-      job.prBaseBranch === parent.branchName &&
-      job.state !== "merged" &&
-      job.state !== "cancelled"
-    ) {
-      updateJob(ctx.db, job.key, { restack });
+    if (!stackedOn(job, parent)) {
+      continue;
+    }
+
+    updateJob(ctx.db, job.key, { restack });
+
+    // The fast lane can report the conflict a parent merge causes before the watcher sees the merge.
+    if (job.blockedReason === conflictReason(parent.branchName)) {
+      transition(ctx, job.key, {
+        from: ["needs_input"],
+        to: "done",
+        fields: { blockedReason: null },
+      });
     }
   }
 }
