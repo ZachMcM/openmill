@@ -63,7 +63,11 @@ program
     "permission mode for these jobs: auto or bypass",
     option(parsePermissionMode),
   )
-  .option("--terminal <name>", "terminal for these jobs: rex or herdr", option(parseTerminal))
+  .option(
+    "--terminal <name>",
+    "terminal for these jobs: rex, herdr, or t3code",
+    option(parseTerminal),
+  )
   .option("--model <name>", "model for these jobs", option(parseModel))
   .option("--effort <level>", "effort for these jobs", option(parseEffort))
   .option("--force", "re-queue jobs that already started", false)
@@ -142,7 +146,7 @@ program
       ["session", job.sessionId ?? "-"],
       ["transcript", job.transcriptPath ?? "-"],
       ["pr", job.prUrl ?? "-"],
-      ["capture", job.capturePath ?? "-"],
+      job.link ? ["thread", job.link] : ["capture", job.capturePath ?? "-"],
       ["result", job.lastResult ? JSON.stringify(job.lastResult) : "-"],
     ];
 
@@ -156,9 +160,13 @@ program
   .description("focus a job's window in its terminal")
   .argument("<id>")
   .action(async (id: string) => {
-    await unwrap(
+    const { url } = await unwrap(
       (await connect()).jobs[":id"].open.$post({ param: { id }, query: { repo: process.cwd() } }),
     );
+
+    if (url) {
+      console.log(url);
+    }
   });
 
 program

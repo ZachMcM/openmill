@@ -55,14 +55,12 @@ export function createApp(mill: Mill, { version, onShutdown }: AppOptions) {
     .get("/jobs/:id", validate("query", jobQuerySchema), async (c) => {
       const job = await mill.resolve(c.req.param("id"), c.req.valid("query").repo);
 
-      return c.json(mill.show(job));
+      return c.json(await mill.show(job));
     })
     .post("/jobs/:id/open", validate("query", jobQuerySchema), async (c) => {
       const job = await mill.resolve(c.req.param("id"), c.req.valid("query").repo);
 
-      await mill.open(job);
-
-      return c.json({ ok: true });
+      return c.json({ ok: true, ...(await mill.open(job)) });
     })
     .post("/jobs/:id/cancel", validate("query", jobQuerySchema), async (c) => {
       const job = await mill.resolve(c.req.param("id"), c.req.valid("query").repo);
@@ -71,9 +69,9 @@ export function createApp(mill: Mill, { version, onShutdown }: AppOptions) {
     })
     .post("/clean", async (c) => c.json({ closed: await mill.clean() }))
     .post("/hooks/:event", validate("json", hookRequestSchema), async (c) => {
-      const { runId, payload } = c.req.valid("json");
+      const { payload, ...target } = c.req.valid("json");
 
-      return c.json({ output: await mill.hook(runId, c.req.param("event"), payload) });
+      return c.json({ output: await mill.hook(target, c.req.param("event"), payload) });
     })
     .post("/jobs/:id/requeue", validate("query", jobQuerySchema), async (c) => {
       const job = await mill.resolve(c.req.param("id"), c.req.valid("query").repo);

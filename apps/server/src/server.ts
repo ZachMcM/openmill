@@ -8,6 +8,7 @@ import { readConfig } from "./config-store.ts";
 import { ghCli } from "./github.ts";
 import { claudeAgent } from "./agent/claude.ts";
 import { codexAgent } from "./agent/codex.ts";
+import { createT3Host } from "./host/t3code.ts";
 import { Mill } from "./mill.ts";
 import { readNotifiers } from "./notifier-store.ts";
 import { resolvePaths } from "./paths.ts";
@@ -45,6 +46,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         rex: createRexTerminal(paths.rexSession),
         herdr: createHerdrTerminal(paths.herdrWorkspace),
       },
+      host: createT3Host(paths),
       agents: { claude: claudeAgent, codex: codexAgent },
       github: ghCli,
       hookCommand: options.hookCommand,

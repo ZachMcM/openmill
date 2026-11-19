@@ -1,3 +1,5 @@
+export { hooksSettings } from "./agent/claude.ts";
+export { t3Command } from "./host/t3code.ts";
 export type { AddRequest, JobDetail, JobSummary } from "./api.ts";
 export { readConfig, writeConfigValue } from "./config-store.ts";
 export { isWebhookUrl } from "./notifier/index.ts";
