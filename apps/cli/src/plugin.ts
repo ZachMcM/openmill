@@ -1,6 +1,7 @@
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
-import { PLUGIN_NAME, pluginDir } from "@openmill/assets";
+import { PLUGIN_NAME, REVIEW_AGENTS, codexAgentsDir, pluginDir } from "@openmill/assets";
 import { run, runOrThrow } from "./system.ts";
 
 export const PLUGIN_ID = `${PLUGIN_NAME}@${PLUGIN_NAME}`;
@@ -59,6 +60,29 @@ export async function installPlugin(dir: string): Promise<void> {
 export async function uninstallPlugin(): Promise<void> {
   await run("claude", ["plugin", "uninstall", PLUGIN_ID]);
   await run("claude", ["plugin", "marketplace", "remove", PLUGIN_NAME]);
+}
+
+function codexAgentsHome(): string {
+  return join(process.env.CODEX_HOME ?? join(homedir(), ".codex"), "agents");
+}
+
+export async function installCodexPlugin(dir: string): Promise<void> {
+  await runOrThrow("codex", ["plugin", "marketplace", "add", dir]);
+  await runOrThrow("codex", ["plugin", "add", PLUGIN_ID]);
+  await mkdir(codexAgentsHome(), { recursive: true });
+
+  for (const name of REVIEW_AGENTS) {
+    await cp(join(codexAgentsDir, `${name}.toml`), join(codexAgentsHome(), `${name}.toml`));
+  }
+}
+
+export async function uninstallCodexPlugin(): Promise<void> {
+  await run("codex", ["plugin", "remove", PLUGIN_ID]);
+  await run("codex", ["plugin", "marketplace", "remove", PLUGIN_NAME]);
+
+  for (const name of REVIEW_AGENTS) {
+    await rm(join(codexAgentsHome(), `${name}.toml`), { force: true });
+  }
 }
 
 function json(value: unknown): string {

@@ -83,7 +83,7 @@ export function createApp(mill: Mill, { version, onShutdown }: AppOptions) {
         throw new ApiError(400, parsed.error);
       }
 
-      return c.json({ config: await mill.setConfig(key, parsed.value) });
+      return c.json(await mill.setConfig(key, parsed.value));
     })
     .delete("/config/:key", async (c) => {
       const key = c.req.param("key");
@@ -92,7 +92,7 @@ export function createApp(mill: Mill, { version, onShutdown }: AppOptions) {
         throw new ApiError(400, `unknown config key ${key}`);
       }
 
-      return c.json({ config: await mill.setConfig(key, undefined) });
+      return c.json(await mill.setConfig(key, undefined));
     });
 }
 

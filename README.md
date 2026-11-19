@@ -17,7 +17,8 @@ already use.
 ## Install
 
 Requires macOS or Linux, Node 24 or later, `git`, the GitHub CLI (`gh`) signed in with
-`gh auth login`, [Rex](https://www.superlogical.com/rex), and the Claude Code CLI (`claude`).
+`gh auth login`, [Rex](https://www.superlogical.com/rex), and at least one signed-in agent CLI:
+Claude Code (`claude`) or Codex (`codex`).
 
 ```sh
 npx openmill install
@@ -25,22 +26,25 @@ npx openmill install
 
 It:
 
-1. checks the prerequisites above
+1. checks the prerequisites above, including whether each agent CLI can launch and is signed in
 2. installs `openmill` globally with `npm install -g`, at the version you ran
 3. creates `~/.openmill`
-4. installs the openmill Claude plugin, which has the workflow skill and review agents, from a
-   local marketplace in `~/.openmill/plugin`
+4. installs the openmill plugin, which has the workflow skill and review agents, from a local
+   marketplace in `~/.openmill/plugin`, for each agent that's ready. For Codex it also copies the
+   review agents into `~/.codex/agents`
 5. stops a running server from an older version, so the next command starts the new one
-6. asks for `concurrency`, `model`, and `effort`
+6. asks which agent runs jobs by default when more than one is ready, then asks for
+   `concurrency`, `model`, and `effort`. For Codex, the model and effort lists come from
+   `codex debug models`
 
 Pass `--yes` to skip the prompts and keep the defaults.
 
-To upgrade, run `openmill update`. It installs the latest release, refreshes the Claude plugin, and
+To upgrade, run `openmill update`. It installs the latest release, refreshes the agent plugins, and
 stops a server from the old version. It keeps your config and asks no questions. Config keys added
 in a new release get their defaults, which you can change with `openmill config set`.
 
-To remove openmill, run `openmill uninstall`. It stops the server and removes the plugin and the
-global package. It keeps `~/.openmill` unless you pass `--purge`.
+To remove openmill, run `openmill uninstall`. It stops the server and removes the plugins, the
+Codex review agents, and the global package. It keeps `~/.openmill` unless you pass `--purge`.
 
 > [!CAUTION]
 > openmill starts Claude in auto mode by default, where Claude's own classifier approves or blocks
@@ -86,7 +90,7 @@ config later doesn't change jobs already queued or running.
 The first command that needs the server starts it in the background. State lives in
 `~/.openmill`, or in `OPENMILL_HOME` when it's set.
 
-Every job runs as an interactive `claude` session in its own window in the `openmill` Rex
+Every job runs as an interactive agent session in its own window in the `openmill` Rex
 session. New windows open in the background, so a new job never takes your screen. Run
 `openmill open <id>` to watch a job, and type into its window to take it over.
 
@@ -113,7 +117,7 @@ count when they come from the repo's owners, members, or collaborators, or from 
 
 When a trusted review leaves new unresolved threads on a job's PR, or its CI finishes with a
 failing check, the job goes back in the queue as a follow-up. The follow-up starts a fresh
-`claude` session in the job's window with the `address-pr-feedback` skill, which fixes the code,
+agent session in the job's window with the `address-pr-feedback` skill, which fixes the code,
 replies to each thread, and pushes. The skill works by hand on any PR too.
 
 Pushes from follow-ups are gated by `review_push` and `ci_push`. With `wait`, the session commits
@@ -208,24 +212,36 @@ you run `openmill add` again.
 Config lives in `~/.openmill/config.json`. Read and change it with `openmill config get`, `set`,
 `unset`, and `list`, which work while jobs run.
 
-| Key                 | Default  | Meaning                                                     |
-| ------------------- | -------- | ----------------------------------------------------------- |
-| `concurrency`       | `2`      | Jobs that can run at once. `needs_input` jobs don't count   |
-| `agent`             | `claude` | The coding agent                                            |
-| `permission_mode`   | `auto`   | `auto` for Claude's auto mode, or `bypass` to skip prompts  |
-| `model`             | unset    | Model passed to the agent. Unset uses the agent's default   |
-| `effort`            | `medium` | `low`, `medium`, `high`, `xhigh`, or `max`                  |
-| `notify_desktop`    | `true`   | Send desktop notifications                                  |
-| `notify_command`    | unset    | Shell command that gets each notification as JSON on stdin  |
-| `watch_interval`    | `120`    | Seconds between GitHub polls for open PRs. At least 30      |
-| `trusted_bots`      | empty    | Comma-separated bot logins whose reviews count              |
-| `review_push`       | `wait`   | `wait` or `auto` for pushes from review follow-ups          |
-| `ci_push`           | `auto`   | `wait` or `auto` for pushes from CI follow-ups              |
-| `followup_attempts` | `3`      | Follow-up runs on the same problem before the job needs you |
+| Key                 | Default  | Meaning                                                       |
+| ------------------- | -------- | ------------------------------------------------------------- |
+| `concurrency`       | `2`      | Jobs that can run at once. `needs_input` jobs don't count     |
+| `agent`             | `claude` | The coding agent                                              |
+| `permission_mode`   | `auto`   | `auto` for the agent's auto mode, or `bypass` to skip prompts |
+| `model`             | unset    | Model passed to the agent. Unset uses the agent's default     |
+| `effort`            | `medium` | A level the agent and model support (see below)               |
+| `notify_desktop`    | `true`   | Send desktop notifications                                    |
+| `notify_command`    | unset    | Shell command that gets each notification as JSON on stdin    |
+| `watch_interval`    | `120`    | Seconds between GitHub polls for open PRs. At least 30        |
+| `trusted_bots`      | empty    | Comma-separated bot logins whose reviews count                |
+| `review_push`       | `wait`   | `wait` or `auto` for pushes from review follow-ups            |
+| `ci_push`           | `auto`   | `wait` or `auto` for pushes from CI follow-ups                |
+| `followup_attempts` | `3`      | Follow-up runs on the same problem before the job needs you   |
 
 ## Supported agents
 
-Claude Code is the only agent so far. Set it with `openmill config set agent claude`.
+Pick one with `openmill config set agent claude` or `openmill config set agent codex`, or per call
+with `openmill add --agent`.
+
+- **Claude Code.** Effort is `low`, `medium`, `high`, `xhigh`, or `max`.
+- **Codex.** Every job runs as an interactive `codex` session in a Rex window with the same hooks
+  and gates as Claude. Effort must be a level the model lists in `codex debug models`, and
+  `openmill add` rejects one it doesn't support. When `config set agent` or `config set model`
+  leaves the stored effort unsupported, openmill resets it to the model's default and says so.
+  In `auto` mode Codex runs sandboxed with on-request approvals that its auto-reviewer decides,
+  network access, and write access to the worktree's git metadata so it can commit and push. On
+  Linux that sandbox needs `bubblewrap`. `bypass` runs with
+  `--dangerously-bypass-approvals-and-sandbox`. openmill passes hooks and folder trust on the
+  command line and never edits `~/.codex/config.toml`.
 
 ## Development
 

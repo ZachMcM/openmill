@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import {
   CLEANABLE_STATES,
+  DEFAULT_CONFIG,
   HAND_OFF_STATES,
   REQUEUEABLE_STATES,
   SESSION_STATES,
@@ -9,10 +10,12 @@ import {
   canTransition,
   checkGraph,
   jobsToStart,
+  resolveEffort,
   waitingUpdates,
   type AgentName,
   type Config,
   type ConfigKey,
+  type EffortCheck,
   type JobState,
   type SchedulableJob,
 } from "@openmill/core";
@@ -164,6 +167,16 @@ export class Mill {
       agent: request.agent ?? this.ctx.config.agent,
       permissionMode: request.permissionMode ?? this.ctx.config.permission_mode,
     };
+    const effort = await this.checkEffort({
+      ...this.ctx.config,
+      agent: resolved.agent,
+      model: request.model ?? this.ctx.config.model,
+      effort: request.effort ?? this.ctx.config.effort,
+    });
+
+    if (!effort.ok) {
+      throw new ApiError(400, effort.error);
+    }
 
     db.transaction((tx) => {
       const keys = new Map([...existing].map(([id, job]) => [id, job.key]));
@@ -408,9 +421,9 @@ export class Mill {
   async hook(runId: number, event: string, payload: unknown): Promise<unknown> {
     const { reply, type } = await handleHook(this.ctx, runId, event, payload);
 
-    // Tool-use hooks fire on every agent tool call, and neither they nor permission waits change
-    // job state.
-    if (type && type !== "tool_use" && type !== "permission_wait") {
+    // Tool-use hooks fire on every agent tool call, and neither they, permission waits, nor
+    // session starts change job state.
+    if (type && type !== "tool_use" && type !== "permission_wait" && type !== "session_start") {
       this.schedule();
     }
 
@@ -421,7 +434,28 @@ export class Mill {
     return this.ctx.config;
   }
 
-  async setConfig(key: ConfigKey, value: Config[ConfigKey]): Promise<Config> {
+  async setConfig(
+    key: ConfigKey,
+    value: Config[ConfigKey],
+  ): Promise<{ config: Config; note?: string }> {
+    let note: string | undefined;
+
+    if (key === "agent" || key === "model" || key === "effort") {
+      const check = await this.checkEffort({
+        ...this.ctx.config,
+        [key]: value ?? DEFAULT_CONFIG[key],
+      });
+
+      if (!check.ok && key === "effort") {
+        throw new ApiError(400, check.error);
+      }
+
+      if (!check.ok) {
+        await writeConfigValue(this.ctx.paths.config, "effort", check.fallback);
+        note = `effort reset to ${check.fallback} for ${check.model}`;
+      }
+    }
+
     this.ctx.config = await writeConfigValue(this.ctx.paths.config, key, value);
 
     if (key === "watch_interval") {
@@ -430,7 +464,13 @@ export class Mill {
 
     this.schedule();
 
-    return this.ctx.config;
+    return { config: this.ctx.config, note };
+  }
+
+  private async checkEffort(config: Config): Promise<EffortCheck> {
+    const catalog = await this.ctx.agents[config.agent]?.catalog().catch(() => undefined);
+
+    return resolveEffort(config.agent, config.model, config.effort, catalog);
   }
 
   status(): { pid: number; running: number; queued: number } {

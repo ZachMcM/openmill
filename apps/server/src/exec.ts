@@ -9,7 +9,7 @@ export function exec(
   return new Promise((resolve, reject) => {
     execFile(command, args, { cwd, env, maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) {
-        const detail = stderr.trim() || error.message;
+        const detail = stderr.trim() || stdout.trim() || error.message;
 
         reject(
           Object.assign(new Error(`${command} ${args.join(" ")} failed: ${detail}`), {

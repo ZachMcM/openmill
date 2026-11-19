@@ -1,6 +1,6 @@
-import { FOLLOWUP_SKILL, PLUGIN_NAME, WORKFLOW_SKILL } from "@openmill/assets";
+import { FOLLOWUP_SKILL, WORKFLOW_SKILL } from "@openmill/assets";
 import type { FollowupTrigger } from "@openmill/core";
-import type { RunInput } from "./types.ts";
+import type { Agent, RunInput } from "./types.ts";
 
 export const APPROVED_MESSAGE =
   "The human approved these changes. Push and post your thread replies, then stop.";
@@ -19,7 +19,7 @@ function inWorktree(branch: string): string {
   return `You are already in the job's worktree on branch ${branch}, so don't create another branch or worktree.`;
 }
 
-export function startPrompt(input: RunInput): string {
+export function startPrompt(agent: Agent, input: RunInput): string {
   const facts = bullets([
     input.projectPath ? `The project overview is at ${input.projectPath}.` : undefined,
     `You are already in your worktree on branch ${input.branch}, so don't create another branch or worktree.`,
@@ -28,10 +28,11 @@ export function startPrompt(input: RunInput): string {
     "Don't stop until the draft PR is open, or until a human decision or missing access blocks the work.",
   ]);
 
-  return `/${PLUGIN_NAME}:${WORKFLOW_SKILL} ${input.docPath}\n\n${facts}\n`;
+  return `${agent.skillPrompt(WORKFLOW_SKILL, input.docPath)}\n\n${facts}\n`;
 }
 
 export function followupPrompt(
+  agent: Agent,
   input: RunInput,
   prUrl: string,
   trigger: FollowupTrigger,
@@ -51,7 +52,7 @@ export function followupPrompt(
     ASK,
   ]);
 
-  return `/${PLUGIN_NAME}:${FOLLOWUP_SKILL} ${prUrl} ${input.docPath}\n\n${facts}\n`;
+  return `${agent.skillPrompt(FOLLOWUP_SKILL, `${prUrl} ${input.docPath}`)}\n\n${facts}\n`;
 }
 
 export function restackPrompt(input: RunInput, base: string, cut: string, push: boolean): string {
