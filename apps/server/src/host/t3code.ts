@@ -206,6 +206,7 @@ async function rpc(origin: string, bearer: string, tool: string, args: object) {
     await fetch(`${origin}/mcp`, {
       method: "DELETE",
       headers: { authorization: headers.authorization, "mcp-session-id": session },
+      signal: AbortSignal.timeout(30_000),
     }).catch(() => {});
   }
 
