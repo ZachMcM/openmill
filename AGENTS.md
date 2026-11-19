@@ -29,12 +29,14 @@ Use pnpm for everything. Never use npm or yarn, and never edit `pnpm-lock.yaml` 
 - `core` does no I/O: no filesystem, network, processes, or clock. Keep it pure so it stays easy to unit test.
 - The server is the only process that opens SQLite. The CLI never imports `@openmill/db` and talks to the server only through the typed client from `@openmill/server/client`.
 - Request and response shapes come from the server's Hono routes. Don't redeclare them in the CLI.
-- Only the server runs `git`, `gh`, `rex`, and agents. The exceptions are in the CLI.
+- Only the server runs `git`, `gh`, `rex`, and agents. Only the server sends notifications,
+  including Discord and Slack webhook requests. The exceptions are in the CLI.
   `openmill install`, `update`, and `uninstall` run before a server exists. They may check that
   `git`, `gh`, and `rex` are installed, run each agent's readiness check, run `npm`,
   `claude plugin`, `codex plugin`, and `codex debug models`, and copy the Codex review agents,
-  and nothing else. The hidden `openmill hook` command runs inside agent sessions and only
-  forwards hook JSON to the server.
+  and nothing else. `openmill install` may start the server through the typed client to set up
+  notifiers. The hidden `openmill hook` command runs inside agent sessions and only forwards hook
+  JSON to the server.
 - Every terminal implements the `Terminal` interface in `apps/server/src/terminal/types.ts`, and
   every agent implements the `Agent` interface in `apps/server/src/agent/types.ts`. Code specific
   to one terminal or agent stays in its adapter.

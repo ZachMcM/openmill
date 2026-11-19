@@ -10,9 +10,9 @@ import { Mill } from "./mill.ts";
 import { jobDir, resolvePaths, type Paths } from "./paths.ts";
 import type { Terminal, TerminalBlock } from "./terminal/types.ts";
 
-vi.mock("./notify.ts", () => ({
-  createNotifier: () => () => {},
-  notificationPayload: () => ({}),
+vi.mock("./notifier/index.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./notifier/index.ts")>()),
+  createNotify: () => () => {},
 }));
 
 let home: string;
@@ -74,6 +74,7 @@ async function reconcile(term: Terminal, gh = github()): Promise<void> {
     db,
     paths,
     config: DEFAULT_CONFIG,
+    notifiers: [],
     terminal: term,
     agents: { claude: {} as Agent, codex: {} as Agent },
     github: gh,

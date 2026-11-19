@@ -1,3 +1,4 @@
+import * as p from "@clack/prompts";
 import type { JobState } from "@openmill/core";
 import ora from "ora";
 import pc from "picocolors";
@@ -46,4 +47,14 @@ export async function spin<T>(text: string, task: () => Promise<T>): Promise<T> 
   } finally {
     spinner.stop();
   }
+}
+
+export class Cancelled extends Error {}
+
+export function answer<T>(value: T): Exclude<T, symbol> {
+  if (p.isCancel(value)) {
+    throw new Cancelled();
+  }
+
+  return value as Exclude<T, symbol>;
 }

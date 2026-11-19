@@ -6,6 +6,7 @@ export interface Paths {
   home: string;
   db: string;
   config: string;
+  notifiers: string;
   socket: string;
   pid: string;
   log: string;
@@ -21,6 +22,7 @@ export function resolvePaths(): Paths {
     home,
     db: join(home, "openmill.db"),
     config: join(home, "config.json"),
+    notifiers: join(home, "notifiers.json"),
     socket: join(home, "server.sock"),
     pid: join(home, "server.pid"),
     log: join(home, "server.log"),

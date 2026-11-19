@@ -3,7 +3,7 @@ import { PassThrough } from "node:stream";
 import { DEFAULT_CONFIG } from "@openmill/core";
 import type { Job } from "@openmill/db";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createNotifier, notificationPayload } from "./notify.ts";
+import { createNotify, notificationPayload } from "./index.ts";
 
 vi.mock("node:child_process", () => ({
   exec: vi.fn<typeof exec>(),
@@ -39,7 +39,10 @@ beforeEach(() => {
   vi.mocked(exec).mockReset();
 });
 
-afterEach(() => setPlatform(platform));
+afterEach(() => {
+  setPlatform(platform);
+  vi.unstubAllGlobals();
+});
 
 describe("notificationPayload", () => {
   it("names the job and how to open its window", () => {
@@ -58,7 +61,7 @@ describe("notificationPayload", () => {
 describe("desktop notifications", () => {
   it("passes the title and body to osascript as arguments", () => {
     setPlatform("darwin");
-    createNotifier(() => {})(payload, DEFAULT_CONFIG);
+    createNotify(() => {})(payload, DEFAULT_CONFIG, []);
 
     const { command, args } = desktopCall();
 
@@ -69,7 +72,7 @@ describe("desktop notifications", () => {
 
   it("passes the title and body to notify-send after --", () => {
     setPlatform("linux");
-    createNotifier(() => {})(payload, DEFAULT_CONFIG);
+    createNotify(() => {})(payload, DEFAULT_CONFIG, []);
 
     expect(desktopCall()).toMatchObject({
       command: "notify-send",
@@ -79,7 +82,7 @@ describe("desktop notifications", () => {
 
   it("keeps the open hint when it shortens a long reason", () => {
     setPlatform("linux");
-    createNotifier(() => {})({ ...payload, reason: "x".repeat(500) }, DEFAULT_CONFIG);
+    createNotify(() => {})({ ...payload, reason: "x".repeat(500) }, DEFAULT_CONFIG, []);
 
     const shown = desktopCall().args.at(-1) ?? "";
 
@@ -87,7 +90,7 @@ describe("desktop notifications", () => {
     expect(shown).toMatch(/x… Run openmill open add-login\.$/);
   });
 
-  it("logs a missing command once and stops trying", () => {
+  it("logs a missing command once and stops trying", async () => {
     setPlatform("linux");
     vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
       const callback = args.at(-1) as (error: Error) => void;
@@ -96,13 +99,13 @@ describe("desktop notifications", () => {
     }) as unknown as typeof execFile);
 
     const log = vi.fn<(message: string) => void>();
-    const notify = createNotifier(log);
+    const notify = createNotify(log);
 
-    notify(payload, DEFAULT_CONFIG);
-    notify(payload, DEFAULT_CONFIG);
+    notify(payload, DEFAULT_CONFIG, []);
+    notify(payload, DEFAULT_CONFIG, []);
+    await vi.waitFor(() => expect(log).toHaveBeenCalledTimes(1));
 
     expect(execFile).toHaveBeenCalledTimes(1);
-    expect(log).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -114,14 +117,37 @@ describe("notify_command", () => {
     stdin.on("data", (chunk: Buffer) => (written += chunk.toString()));
     vi.mocked(exec).mockReturnValue({ stdin } as unknown as ReturnType<typeof exec>);
 
-    createNotifier(() => {})(payload, {
-      ...DEFAULT_CONFIG,
-      notify_desktop: false,
-      notify_command: "cat > /dev/null",
-    });
+    createNotify(() => {})(
+      payload,
+      { ...DEFAULT_CONFIG, notify_desktop: false, notify_command: "cat > /dev/null" },
+      [],
+    );
 
     expect(execFile).not.toHaveBeenCalled();
     expect(vi.mocked(exec).mock.calls[0]?.[0]).toBe("cat > /dev/null");
     expect(JSON.parse(written)).toEqual(payload);
+  });
+});
+
+describe("connectors", () => {
+  it("sends to every connector and logs the one that failed by name", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (url) =>
+      String(url).includes("discord")
+        ? new Response(null, { status: 500, statusText: "Internal Server Error" })
+        : new Response("ok"),
+    );
+    const log = vi.fn<(message: string) => void>();
+
+    vi.stubGlobal("fetch", fetch);
+    createNotify(log)(payload, { ...DEFAULT_CONFIG, notify_desktop: false }, [
+      { name: "phone", type: "discord", url: "https://discord.com/api/webhooks/1/a" },
+      { name: "team", type: "slack", url: "https://hooks.slack.com/services/T/B/c" },
+    ]);
+    await vi.waitFor(() => expect(log).toHaveBeenCalled());
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(log).toHaveBeenCalledExactlyOnceWith(
+      "notification to phone failed: 500 Internal Server Error",
+    );
   });
 });

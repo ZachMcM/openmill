@@ -8,6 +8,7 @@ export const NOTIFICATION_EVENTS = [
   "ready_for_review",
   "followup_ready",
   "followups_exhausted",
+  "pr_opened",
 ] as const;
 
 export type NotificationEvent = (typeof NOTIFICATION_EVENTS)[number];

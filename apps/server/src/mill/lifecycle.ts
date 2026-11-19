@@ -16,7 +16,7 @@ import {
   type Run,
   type RunResultRecord,
 } from "@openmill/db";
-import { notificationPayload } from "../notify.ts";
+import { notificationPayload } from "../notifier/index.ts";
 import { jobDir } from "../paths.ts";
 import type { MillContext } from "./context.ts";
 
@@ -54,7 +54,11 @@ export function inSession(job: Job): boolean {
 }
 
 export function finish(ctx: MillContext, key: number, prUrl: string): void {
-  transition(ctx, key, { to: "done", fields: { prUrl, blockedReason: null } });
+  const previous = transition(ctx, key, { to: "done", fields: { prUrl, blockedReason: null } });
+
+  if (previous && previous.prUrl === null) {
+    send(ctx, "pr_opened", key, null);
+  }
 }
 
 export async function fail(
@@ -166,7 +170,7 @@ export function send(
   }
 
   try {
-    ctx.notifier(notificationPayload(event, job, reason), ctx.config);
+    ctx.notifier(notificationPayload(event, job, reason), ctx.config, ctx.notifiers);
   } catch (error) {
     ctx.log(`notification for ${job.id} failed: ${String(error)}`);
   }

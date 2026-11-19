@@ -53,10 +53,13 @@ import {
   findDraft,
   finish,
   inSession,
+  send,
   transition,
 } from "./mill/lifecycle.ts";
 import { graphFor, launch, repoGraph } from "./mill/session.ts";
-import { createNotifier } from "./notify.ts";
+import { createNotify, isWebhookUrl, sendTest } from "./notifier/index.ts";
+import { NOTIFIER_LABELS, type NotifierEntry } from "./notifier/types.ts";
+import { writeNotifiers } from "./notifier-store.ts";
 import { branchName, worktreePath, type Paths } from "./paths.ts";
 import type { Terminal } from "./terminal/types.ts";
 import { PrWatcher } from "./watcher.ts";
@@ -65,6 +68,7 @@ export interface MillOptions {
   db: Db;
   paths: Paths;
   config: Config;
+  notifiers: NotifierEntry[];
   terminal: Terminal;
   agents: Record<AgentName, Agent>;
   github: GitHub;
@@ -82,7 +86,7 @@ export class Mill {
     this.ctx = {
       ...options,
       log,
-      notifier: createNotifier(log),
+      notifier: createNotify(log),
       preparing: new Set(),
       staleHeads: new Map(),
       schedule: () => this.schedule(),
@@ -473,6 +477,49 @@ export class Mill {
     return resolveEffort(config.agent, config.model, config.effort, catalog);
   }
 
+  listNotifiers(): NotifierEntry[] {
+    return this.ctx.notifiers;
+  }
+
+  async addNotifier(entry: NotifierEntry): Promise<NotifierEntry[]> {
+    if (this.ctx.notifiers.some((other) => other.name === entry.name)) {
+      throw new ApiError(400, `notifier ${entry.name} already exists`);
+    }
+
+    if (!isWebhookUrl(entry.type, entry.url)) {
+      throw new ApiError(
+        400,
+        `that doesn't look like a ${NOTIFIER_LABELS[entry.type]} webhook URL`,
+      );
+    }
+
+    return this.saveNotifiers([...this.ctx.notifiers, entry]);
+  }
+
+  async removeNotifier(name: string): Promise<NotifierEntry[]> {
+    this.findNotifier(name);
+
+    return this.saveNotifiers(this.ctx.notifiers.filter((entry) => entry.name !== name));
+  }
+
+  async testNotifiers(
+    name?: string,
+  ): Promise<Array<{ name: string; ok: boolean; error?: string }>> {
+    const entries = name === undefined ? this.ctx.notifiers : [this.findNotifier(name)];
+
+    return Promise.all(
+      entries.map(async (entry) => {
+        try {
+          await sendTest(entry);
+
+          return { name: entry.name, ok: true };
+        } catch (error) {
+          return { name: entry.name, ok: false, error: (error as Error).message };
+        }
+      }),
+    );
+  }
+
   status(): { pid: number; running: number; queued: number } {
     const jobs = listJobs(this.ctx.db);
 
@@ -583,6 +630,23 @@ export class Mill {
     await this.watcher.close();
   }
 
+  private findNotifier(name: string): NotifierEntry {
+    const entry = this.ctx.notifiers.find((other) => other.name === name);
+
+    if (!entry) {
+      throw new ApiError(404, `no notifier named ${name}`);
+    }
+
+    return entry;
+  }
+
+  private async saveNotifiers(entries: NotifierEntry[]): Promise<NotifierEntry[]> {
+    await writeNotifiers(this.ctx.paths.notifiers, entries);
+    this.ctx.notifiers = entries;
+
+    return entries;
+  }
+
   private async detectHandFinished(jobs: Job[]): Promise<Set<number>> {
     const candidates = jobs.filter(
       (job) => job.prUrl === null && HAND_OFF_STATES.includes(job.state as JobState),
@@ -602,6 +666,7 @@ export class Mill {
         })
       ) {
         moved.add(job.key);
+        send(this.ctx, "pr_opened", job.key, null);
       }
     });
 
