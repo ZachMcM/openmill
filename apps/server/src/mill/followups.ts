@@ -80,6 +80,7 @@ export function applyMergeable(ctx: MillContext, key: number, mergeable: boolean
   const decision = decideConflict({
     state: job.state as JobState,
     restacking: job.restack !== null,
+    parentRestacking: parentRestacking(ctx, job),
     blockedReason: job.blockedReason,
     base: job.prBaseBranch,
     mergeable,
@@ -90,6 +91,29 @@ export function applyMergeable(ctx: MillContext, key: number, mergeable: boolean
   } else if (decision === "clear") {
     transition(ctx, key, { from: ["needs_input"], to: "done", fields: { blockedReason: null } });
   }
+}
+
+const RESTACK_RUN_STATES: readonly JobState[] = [
+  "queued",
+  "running",
+  "needs_input",
+  "awaiting_push",
+];
+
+function parentRestacking(ctx: MillContext, job: Job): boolean {
+  const parent = listJobs(ctx.db).find(
+    (other) =>
+      other.repoPath === job.repoPath &&
+      other.key !== job.key &&
+      other.branchName === job.prBaseBranch,
+  );
+
+  return (
+    parent !== undefined &&
+    (parent.restack !== null ||
+      (latestRun(ctx.db, parent.key)?.kind === "restack" &&
+        RESTACK_RUN_STATES.includes(parent.state as JobState)))
+  );
 }
 
 async function prEnded(
@@ -104,12 +128,6 @@ async function prEnded(
   if (run && live) {
     await endRun(ctx, job, run, { status: "done" });
     await closeWindow(ctx, job, run);
-    send(
-      ctx,
-      "session_closed",
-      job.key,
-      `the PR ${state} while openmill was working on it, so its session was closed`,
-    );
   }
 
   if (state === "merged") {
@@ -148,9 +166,11 @@ export function followUp(ctx: MillContext): void {
 }
 
 export async function completeFollowup(ctx: MillContext, key: number, run: Run): Promise<void> {
-  if (run.kind === "restack" && run.startSha) {
+  const restack = run.restack ?? getJob(ctx.db, key)?.restack;
+
+  if (run.kind === "restack" && run.startSha && restack) {
     try {
-      await landRestack(ctx, key, run.startSha);
+      await landRestack(ctx, key, run.startSha, restack);
     } catch (error) {
       ctx.log(`retargeting ${getJob(ctx.db, key)?.id} after its restack failed: ${String(error)}`);
     }
@@ -252,11 +272,8 @@ async function prepareFollowup(ctx: MillContext, key: number): Promise<void> {
   });
 }
 
-async function restackJob(
-  ctx: MillContext,
-  key: number,
-  { base, cut }: RestackRecord,
-): Promise<void> {
+async function restackJob(ctx: MillContext, key: number, record: RestackRecord): Promise<void> {
+  const { base, cut } = record;
   const job = getJob(ctx.db, key);
 
   if (!job) {
@@ -306,7 +323,7 @@ async function restackJob(
   }
 
   if (!landed.conflict) {
-    await landRestack(ctx, key, landed.head);
+    await landRestack(ctx, key, landed.head, record);
 
     return;
   }
@@ -323,25 +340,34 @@ async function restackJob(
     gate: ctx.config.review_push === "wait" ? "closed" : null,
     startSha: landed.head,
     resume: false,
+    restack: record,
   });
 }
 
-async function landRestack(ctx: MillContext, key: number, before: string): Promise<void> {
+async function landRestack(
+  ctx: MillContext,
+  key: number,
+  before: string,
+  record: RestackRecord,
+): Promise<void> {
   const job = getJob(ctx.db, key);
-  const restack = job?.restack;
 
-  if (!job || !restack) {
+  if (!job) {
     return;
   }
 
-  if (job.prUrl && job.prBaseBranch !== restack.base) {
-    await ctx.github.editPrBase(job.repoPath, job.prUrl, restack.base);
+  const current = job.restack?.base === record.base && job.restack.cut === record.cut;
+
+  // A newer record means the parent merged mid-restack. GitHub already retargeted the PR then,
+  // and the old base branch may be gone, so the next restack retargets instead.
+  if (current && job.prUrl && job.prBaseBranch !== record.base) {
+    await ctx.github.editPrBase(job.repoPath, job.prUrl, record.base);
   }
 
   updateJob(ctx.db, key, {
-    baseBranch: `origin/${restack.base}`,
-    prBaseBranch: restack.base,
-    restack: null,
+    baseBranch: `origin/${record.base}`,
+    prBaseBranch: record.base,
+    ...(current ? { restack: null } : {}),
   });
   markDependents(ctx, job, { base: job.branchName, cut: before });
 }

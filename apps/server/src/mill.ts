@@ -88,9 +88,11 @@ export class Mill {
     this.ctx = {
       ...options,
       log,
+      debug,
       notifier: createNotify(log),
       preparing: new Set(),
       staleHeads: new Map(),
+      tasklessStops: new Set(),
       schedule: () => this.schedule(),
       refresh: (job) => this.watcher.refresh(job),
     };
@@ -754,5 +756,6 @@ function resumeOf(run: Run): NextRunRecord {
     gate: run.gate,
     startSha: run.startSha,
     resume: true,
+    ...(run.restack ? { restack: run.restack } : {}),
   };
 }

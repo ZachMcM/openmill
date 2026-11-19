@@ -60,7 +60,12 @@ export async function handleHook(
     return { reply: null };
   }
 
-  return { reply: await dispatch(ctx, job, run, agent, parsed), type: parsed.type };
+  const current =
+    parsed.type === "stop" || parsed.type === "session_end" || parsed.type === "prompt"
+      ? job
+      : resume(ctx, job, run);
+
+  return { reply: await dispatch(ctx, current, run, agent, parsed), type: parsed.type };
 }
 
 async function dispatch(
@@ -143,12 +148,22 @@ async function onStop(
     return null;
   }
 
+  if (event.pendingWork === undefined && !ctx.tasklessStops.has(run.id)) {
+    ctx.tasklessStops.add(run.id);
+    ctx.debug(`Stop input for ${job.id} has no background_tasks`);
+  }
+
+  if (event.pendingWork) {
+    return null;
+  }
+
   let outcome: FollowupOutcome;
 
   if (run.kind === "feature") {
     const decision = stopDecision(await findDraft(ctx, job), event.stopHookActive);
 
     if (decision.kind === "done") {
+      await endRun(ctx, job, run, { status: "done" });
       finish(ctx, job.key, decision.prUrl);
 
       return null;
@@ -172,6 +187,7 @@ async function onStop(
 
   switch (outcome) {
     case "done":
+      await endRun(ctx, job, run, { status: "done" });
       await completeFollowup(ctx, job.key, run);
 
       return null;
@@ -203,32 +219,45 @@ async function onStop(
 function onPrompt(ctx: MillContext, job: Job, run: Run): void {
   if (job.state === "awaiting_push") {
     updateRun(ctx.db, run.id, { gate: "open" });
+    transition(ctx, job.key, {
+      from: ["awaiting_push"],
+      to: "running",
+      fields: { blockedReason: null },
+    });
   } else if (inSession(job) && job.state === "needs_input") {
-    updateRun(ctx.db, run.id, { result: null });
-  } else {
-    if (job.state !== "running") {
-      updateRun(ctx.db, run.id, { busy: true });
-    }
+    resume(ctx, job, run);
+  } else if (job.state !== "running") {
+    updateRun(ctx.db, run.id, { busy: true });
+  }
+}
 
-    return;
+function resume(ctx: MillContext, job: Job, run: Run): Job {
+  if (!inSession(job) || job.state !== "needs_input") {
+    return job;
   }
 
+  updateRun(ctx.db, run.id, { result: null });
   transition(ctx, job.key, {
-    from: ["awaiting_push", "needs_input"],
+    from: ["needs_input"],
     to: "running",
     fields: { blockedReason: null },
   });
+
+  return getJob(ctx.db, job.key) ?? job;
 }
 
 async function onSessionEnd(ctx: MillContext, job: Job, run: Run): Promise<void> {
-  if (run.endedAt) {
+  if (!inSession(job)) {
+    if (!run.endedAt) {
+      await endRun(ctx, job, run, run.result ?? { status: "done" });
+    }
+
+    leftSession(ctx, job.key);
+
     return;
   }
 
-  if (!inSession(job)) {
-    await endRun(ctx, job, run, run.result ?? { status: "done" });
-    leftSession(ctx, job.key);
-
+  if (run.endedAt) {
     return;
   }
 

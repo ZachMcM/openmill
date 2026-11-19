@@ -50,6 +50,7 @@ export function launch(ctx: MillContext, key: number): void {
     trigger: next?.trigger ?? null,
     gate: next?.gate ?? null,
     startSha: next?.startSha ?? null,
+    restack: next?.restack ?? null,
     sessionId: resume
       ? job.sessionId
       : ctx.agents[agent]?.presetSessionId === false
@@ -197,8 +198,10 @@ function prompt(agent: Agent, job: Job, run: Run, input: RunInput): string {
     return followupPrompt(agent, input, job.prUrl, run.trigger, push);
   }
 
-  if (run.kind === "restack" && job.restack) {
-    return restackPrompt(input, job.restack.base, job.restack.cut, push);
+  const restack = run.restack ?? job.restack;
+
+  if (run.kind === "restack" && restack) {
+    return restackPrompt(input, restack.base, restack.cut, push);
   }
 
   return startPrompt(agent, input);

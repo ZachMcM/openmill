@@ -197,6 +197,7 @@ export const codexAgent: Agent = {
           transcriptPath,
           stopHookActive: parsed.data.stop_hook_active ?? false,
           lastMessage: parsed.data.last_assistant_message ?? undefined,
+          pendingWork: false,
         };
       case "tool_use":
         return { type, transcriptPath, command };
