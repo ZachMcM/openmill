@@ -8,10 +8,13 @@ import {
   CODEX_MODELS_COMMAND,
   DEFAULT_CONFIG,
   READY_CHECKS,
+  TERMINAL_CHECKS,
+  TERMINALS,
   parseCodexModels,
   parseConfigValue,
   type AgentName,
   type ModelEfforts,
+  type TerminalName,
 } from "@openmill/core";
 import { readConfig, resolvePaths, writeConfigValue } from "@openmill/server";
 import type { Client } from "@openmill/server/client";
@@ -62,7 +65,12 @@ async function step(title: string, task: () => Promise<string | undefined>): Pro
   }
 }
 
-async function checkPrerequisites(): Promise<AgentName[]> {
+interface Ready {
+  agents: AgentName[];
+  terminals: TerminalName[];
+}
+
+async function checkPrerequisites(): Promise<Ready> {
   if (!meetsNodeVersion(process.versions.node)) {
     throw new Error(
       `openmill needs Node ${MIN_NODE_MAJOR} or later, found ${process.versions.node}`,
@@ -75,9 +83,17 @@ async function checkPrerequisites(): Promise<AgentName[]> {
     }
   }
 
-  if (!(await hasCommand("rex", ["version"]))) {
+  const terminals: TerminalName[] = [];
+
+  for (const terminal of TERMINALS) {
+    if (await passes(TERMINAL_CHECKS[terminal])) {
+      terminals.push(terminal);
+    }
+  }
+
+  if (terminals.length === 0) {
     throw new Error(
-      "rex isn't installed or isn't on PATH. openmill runs every agent in a Rex window.",
+      "No terminal is ready. Install rex or herdr; openmill runs every agent in a terminal window.",
     );
   }
 
@@ -85,7 +101,7 @@ async function checkPrerequisites(): Promise<AgentName[]> {
     p.log.warn(`gh isn't signed in. Run ${pc.bold("gh auth login")} before queuing jobs.`);
   }
 
-  return readyAgents();
+  return { agents: await readyAgents(), terminals };
 }
 
 async function passes(checks: Array<[string, ...string[]]>): Promise<boolean> {
@@ -194,7 +210,9 @@ async function codexModels(): Promise<ModelEfforts[]> {
   return parseCodexModels(JSON.parse(await runOrThrow(command, args)));
 }
 
-async function promptConfig(path: string, agents: AgentName[]): Promise<void> {
+const TERMINAL_LABELS: Record<TerminalName, string> = { rex: "Rex", herdr: "herdr" };
+
+async function promptConfig(path: string, { agents, terminals }: Ready): Promise<void> {
   if (agents.length > 1) {
     const current = await readConfig(path);
     const agent = answer(
@@ -298,6 +316,18 @@ async function promptConfig(path: string, agents: AgentName[]): Promise<void> {
   }
 
   await writeConfigValue(path, "effort", effort);
+
+  if (terminals.length > 1) {
+    const terminal = answer(
+      await p.select({
+        message: "Which terminal should jobs open in?",
+        options: terminals.map((value) => ({ value, label: TERMINAL_LABELS[value] })),
+        initialValue: terminals.includes(current.terminal) ? current.terminal : terminals[0],
+      }),
+    );
+
+    await writeConfigValue(path, "terminal", terminal);
+  }
 }
 
 async function setUpNotifiers(): Promise<void> {
@@ -335,7 +365,8 @@ export async function install(options: InstallOptions): Promise<void> {
   p.intro(pc.inverse(` openmill ${pkg.version} `));
 
   try {
-    const agents = await checkPrerequisites();
+    const ready = await checkPrerequisites();
+    const { agents, terminals } = ready;
 
     await step("Installing openmill globally", installGlobal);
     await step("Creating the openmill home", async () => {
@@ -351,8 +382,12 @@ export async function install(options: InstallOptions): Promise<void> {
       await writeConfigValue(paths.config, "agent", agents[0]);
     }
 
+    if (terminals.length === 1) {
+      await writeConfigValue(paths.config, "terminal", terminals[0]);
+    }
+
     if (interactive(options)) {
-      await promptConfig(paths.config, agents);
+      await promptConfig(paths.config, ready);
       await setUpNotifiers();
     }
 

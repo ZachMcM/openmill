@@ -1,4 +1,4 @@
-import { CLAUDE_EFFORTS, DEFAULT_CONFIG, type AgentName } from "./config.ts";
+import { CLAUDE_EFFORTS, DEFAULT_CONFIG, type AgentName, type TerminalName } from "./config.ts";
 
 export const READY_CHECKS: Record<AgentName, Array<[string, ...string[]]>> = {
   claude: [
@@ -9,6 +9,11 @@ export const READY_CHECKS: Record<AgentName, Array<[string, ...string[]]>> = {
     ["codex", "--version"],
     ["codex", "login", "status"],
   ],
+};
+
+export const TERMINAL_CHECKS: Record<TerminalName, Array<[string, ...string[]]>> = {
+  rex: [["rex", "version"]],
+  herdr: [["herdr", "--version"]],
 };
 
 export const CODEX_MODELS_COMMAND: [string, ...string[]] = ["codex", "debug", "models"];

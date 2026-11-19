@@ -1,5 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
+import { TERMINAL_CHECKS } from "@openmill/core";
+import { runChecks } from "../agent/shared.ts";
 import { exec } from "../exec.ts";
 import type { Terminal, TerminalBlock } from "./types.ts";
 
@@ -82,6 +84,10 @@ export function createRexTerminal(sessionFile: string): Terminal {
   }
 
   return {
+    ready() {
+      return runChecks(TERMINAL_CHECKS.rex);
+    },
+
     spawn({ label, cwd, command, env, replace }) {
       const argv = [
         "-c",

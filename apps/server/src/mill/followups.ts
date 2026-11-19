@@ -35,6 +35,7 @@ import {
   finish,
   needsInput,
   send,
+  terminalFor,
   transition,
 } from "./lifecycle.ts";
 
@@ -102,7 +103,7 @@ async function prEnded(
 
   if (run && live) {
     await endRun(ctx, job, run, { status: "done" });
-    await closeWindow(ctx, run);
+    await closeWindow(ctx, job, run);
     send(
       ctx,
       "session_closed",
@@ -228,7 +229,7 @@ async function prepareFollowup(ctx: MillContext, key: number): Promise<void> {
     return;
   }
 
-  if (await sessionBusy(ctx, key)) {
+  if (await sessionBusy(ctx, job)) {
     needsInput(ctx, key, SESSION_OPEN_REASON);
 
     return;
@@ -264,7 +265,7 @@ async function restackJob(
 
   const cwd = job.worktreePath;
 
-  if (await sessionBusy(ctx, key)) {
+  if (await sessionBusy(ctx, job)) {
     needsInput(ctx, key, SESSION_OPEN_REASON);
 
     return;
@@ -310,7 +311,7 @@ async function restackJob(
     return;
   }
 
-  if (await sessionBusy(ctx, key)) {
+  if (await sessionBusy(ctx, job)) {
     needsInput(ctx, key, SESSION_OPEN_REASON);
 
     return;
@@ -368,14 +369,16 @@ function queueRun(ctx: MillContext, key: number, nextRun: NextRunRecord): void {
   transition(ctx, key, { from: ["done"], to: "queued", fields: { nextRun } });
 }
 
-async function sessionBusy(ctx: MillContext, key: number): Promise<boolean> {
-  const run = latestRun(ctx.db, key);
+async function sessionBusy(ctx: MillContext, job: Job): Promise<boolean> {
+  const run = latestRun(ctx.db, job.key);
 
   if (!run?.blockId || !run.busy) {
     return false;
   }
 
-  return (await ctx.terminal.list()).some((block) => block.blockId === run.blockId && block.alive);
+  return (await terminalFor(ctx, job).list()).some(
+    (block) => block.blockId === run.blockId && block.alive,
+  );
 }
 
 async function cleanUpMerged(ctx: MillContext, job: Job): Promise<void> {

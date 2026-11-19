@@ -20,7 +20,7 @@ import type { Agent, RunInput } from "../agent/types.ts";
 import { ensureWorktree, fetchDefaultBranch, git, withRepoLock } from "../git.ts";
 import { jobDir } from "../paths.ts";
 import type { MillContext } from "./context.ts";
-import { closeWindow, fail, transition } from "./lifecycle.ts";
+import { closeWindow, fail, terminalFor, transition } from "./lifecycle.ts";
 
 export function permissionMode(ctx: MillContext, job: Job): PermissionMode {
   return (job.permissionMode ?? ctx.config.permission_mode) as PermissionMode;
@@ -92,6 +92,13 @@ async function spawn(
     throw new Error(readiness.reason);
   }
 
+  const terminal = terminalFor(ctx, job);
+  const terminalReadiness = await terminal.ready();
+
+  if (!terminalReadiness.ok) {
+    throw new Error(terminalReadiness.reason);
+  }
+
   const input = await prepare(ctx, job, run);
   const { command, env } = resume
     ? agent.resume(input, message)
@@ -100,19 +107,17 @@ async function spawn(
   await agent.trust(job.repoPath);
 
   const previousBlock = previous?.blockId
-    ? (await ctx.terminal.list().catch(() => [])).find(
-        (block) => block.blockId === previous.blockId,
-      )
+    ? (await terminal.list().catch(() => [])).find((block) => block.blockId === previous.blockId)
     : undefined;
 
   const replace =
     previousBlock && !(previousBlock.alive && resume) ? previousBlock.blockId : undefined;
 
   if (previous && !replace) {
-    await closeWindow(ctx, previous);
+    await closeWindow(ctx, job, previous);
   }
 
-  const blockId = await ctx.terminal.spawn({
+  const blockId = await terminal.spawn({
     label: job.id,
     cwd: job.worktreePath,
     command,
@@ -125,7 +130,7 @@ async function spawn(
   if (getJob(ctx.db, job.key)?.state === "running" && latestRun(ctx.db, job.key)?.id === run.id) {
     updateJob(ctx.db, job.key, { sessionId: getRun(ctx.db, run.id)?.sessionId ?? null });
   } else {
-    await closeWindow(ctx, { ...run, blockId });
+    await closeWindow(ctx, job, { ...run, blockId });
   }
 }
 

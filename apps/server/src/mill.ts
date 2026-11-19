@@ -18,6 +18,7 @@ import {
   type EffortCheck,
   type JobState,
   type SchedulableJob,
+  type TerminalName,
 } from "@openmill/core";
 import {
   findJobsById,
@@ -54,6 +55,7 @@ import {
   finish,
   inSession,
   send,
+  terminalFor,
   transition,
 } from "./mill/lifecycle.ts";
 import { graphFor, launch, repoGraph } from "./mill/session.ts";
@@ -69,7 +71,7 @@ export interface MillOptions {
   paths: Paths;
   config: Config;
   notifiers: NotifierEntry[];
-  terminal: Terminal;
+  terminals: Record<TerminalName, Terminal>;
   agents: Record<AgentName, Agent>;
   github: GitHub;
   hookCommand: string[];
@@ -161,21 +163,29 @@ export class Mill {
       throw new ApiError(400, check.error);
     }
 
-    const superseded: Run[] = [];
+    const resolved = {
+      agent: request.agent ?? this.ctx.config.agent,
+      permissionMode: request.permissionMode ?? this.ctx.config.permission_mode,
+      terminal: request.terminal ?? this.ctx.config.terminal,
+    };
+    const superseded: Array<{ job: Job; run: Run }> = [];
 
     for (const { job, action } of plan) {
       const run = job && action === "requeued" ? latestRun(db, job.key) : undefined;
 
-      if (job && run && SESSION_STATES.includes(job.state as JobState)) {
+      if (!job || !run) {
+        continue;
+      }
+
+      if (SESSION_STATES.includes(job.state as JobState)) {
         await endRun(this.ctx, job, run, { status: "cancelled", reason: "re-queued with --force" });
-        superseded.push(run);
+        superseded.push({ job, run });
+      } else if (terminalFor(this.ctx, job) !== this.ctx.terminals[resolved.terminal]) {
+        // The next run can only replace windows in its own terminal.
+        superseded.push({ job, run });
       }
     }
 
-    const resolved = {
-      agent: request.agent ?? this.ctx.config.agent,
-      permissionMode: request.permissionMode ?? this.ctx.config.permission_mode,
-    };
     const effort = await this.checkEffort({
       ...this.ctx.config,
       agent: resolved.agent,
@@ -243,8 +253,8 @@ export class Mill {
       }
     });
 
-    for (const run of superseded) {
-      await closeWindow(this.ctx, run);
+    for (const { job, run } of superseded) {
+      await closeWindow(this.ctx, job, run);
     }
 
     this.schedule();
@@ -318,13 +328,13 @@ export class Mill {
       throw new ApiError(409, `${job.id} has no window`);
     }
 
-    const blocks = await this.ctx.terminal.list();
+    const terminal = terminalFor(this.ctx, job);
 
-    if (!blocks.some((block) => block.blockId === blockId)) {
+    if (!(await terminal.list()).some((block) => block.blockId === blockId)) {
       throw new ApiError(409, `${job.id}'s window is closed`);
     }
 
-    await this.ctx.terminal.focus(blockId);
+    await terminal.focus(blockId);
   }
 
   async cancel(job: Job): Promise<JobState> {
@@ -341,7 +351,7 @@ export class Mill {
     transition(this.ctx, job.key, { to: "cancelled", fields: { blockedReason: null } });
 
     if (run) {
-      await closeWindow(this.ctx, run);
+      await closeWindow(this.ctx, job, run);
     }
 
     this.schedule();
@@ -350,8 +360,8 @@ export class Mill {
   }
 
   async clean(): Promise<number> {
-    const { db, terminal } = this.ctx;
-    const open = new Set((await terminal.list()).map((block) => block.blockId));
+    const { db } = this.ctx;
+    const blocks = perTerminal(this.ctx, (terminal) => terminal.list());
     const jobs = listJobs(db).filter((job) => CLEANABLE_STATES.includes(job.state as JobState));
     const runs = latestRuns(
       db,
@@ -362,9 +372,9 @@ export class Mill {
     for (const job of jobs) {
       const run = runs.get(job.key);
 
-      if (run?.blockId && open.has(run.blockId)) {
+      if (run?.blockId && (await blocks(job)).some((block) => block.blockId === run.blockId)) {
         await endRun(this.ctx, job, run, run.result ?? { status: "done" });
-        await closeWindow(this.ctx, run);
+        await closeWindow(this.ctx, job, run);
         closed += 1;
       }
     }
@@ -579,23 +589,28 @@ export class Mill {
   }
 
   async reconcile(): Promise<void> {
-    const { db, terminal, log } = this.ctx;
-    let alive = new Set<string>();
-    let unreachable: string | undefined;
+    const { db, log } = this.ctx;
+    const listing = perTerminal(this.ctx, async (terminal) => {
+      try {
+        const blocks = await terminal.list();
 
-    try {
-      alive = new Set(
-        (await terminal.list()).filter((block) => block.alive).map((block) => block.blockId),
-      );
-    } catch (error) {
-      unreachable = (error as Error).message;
-      log(`listing agent windows failed: ${unreachable}`);
-    }
+        return {
+          alive: new Set(blocks.filter((block) => block.alive).map((block) => block.blockId)),
+          unreachable: undefined,
+        };
+      } catch (error) {
+        const unreachable = (error as Error).message;
 
+        log(`listing agent windows failed: ${unreachable}`);
+
+        return { alive: new Set<string>(), unreachable };
+      }
+    });
     const jobs = listJobs(db).filter((job) => inSession(job));
 
     await Promise.all(
       jobs.map(async (job) => {
+        const { alive, unreachable } = await listing(job);
         const run = latestRun(db, job.key);
         const gone = !run?.blockId || !alive.has(run.blockId);
         const reason = unreachable ?? "its window closed while the server was stopped";
@@ -676,6 +691,22 @@ export class Mill {
 }
 
 type PlannedAction = AddAction | "rejected";
+
+function perTerminal<T>(
+  ctx: MillContext,
+  list: (terminal: Terminal) => Promise<T>,
+): (job: Job) => Promise<T> {
+  const results = new Map<Terminal, Promise<T>>();
+
+  return (job) => {
+    const terminal = terminalFor(ctx, job);
+    const result = results.get(terminal) ?? list(terminal);
+
+    results.set(terminal, result);
+
+    return result;
+  };
+}
 
 function planAction(
   doc: AddRequest["docs"][number],

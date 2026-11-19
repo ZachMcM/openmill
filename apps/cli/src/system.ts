@@ -28,8 +28,8 @@ export async function runOrThrow(command: string, args: string[]): Promise<strin
   return result.stdout;
 }
 
-export async function hasCommand(command: string, versionArgs = ["--version"]): Promise<boolean> {
-  return (await run(command, versionArgs)).ok;
+export async function hasCommand(command: string): Promise<boolean> {
+  return (await run(command, ["--version"])).ok;
 }
 
 export function runInherited(command: string, args: string[]): Promise<number> {

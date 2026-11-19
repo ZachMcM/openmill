@@ -1,4 +1,4 @@
-import type { Config, PrObservation } from "@openmill/core";
+import type { Config, PrObservation, TerminalName } from "@openmill/core";
 import type { Db, Job } from "@openmill/db";
 import type { Agent } from "../agent/types.ts";
 import type { GitHub } from "../github.ts";
@@ -10,7 +10,7 @@ import type { Terminal } from "../terminal/types.ts";
 export interface MillContext {
   db: Db;
   paths: Paths;
-  terminal: Terminal;
+  terminals: Record<TerminalName, Terminal>;
   agents: Record<string, Agent>;
   github: GitHub;
   hookCommand: string[];

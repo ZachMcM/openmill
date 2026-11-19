@@ -11,6 +11,7 @@ import { codexAgent } from "./agent/codex.ts";
 import { Mill } from "./mill.ts";
 import { readNotifiers } from "./notifier-store.ts";
 import { resolvePaths } from "./paths.ts";
+import { createHerdrTerminal } from "./terminal/herdr.ts";
 import { createRexTerminal } from "./terminal/rex.ts";
 
 export interface ServerOptions {
@@ -40,7 +41,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       paths,
       config: await readConfig(paths.config),
       notifiers: await readNotifiers(paths.notifiers, options.log ?? (() => {})),
-      terminal: createRexTerminal(paths.rexSession),
+      terminals: {
+        rex: createRexTerminal(paths.rexSession),
+        herdr: createHerdrTerminal(paths.herdrWorkspace),
+      },
       agents: { claude: claudeAgent, codex: codexAgent },
       github: ghCli,
       hookCommand: options.hookCommand,

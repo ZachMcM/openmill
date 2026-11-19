@@ -6,6 +6,7 @@ import {
   notificationFor,
   type JobState,
   type NotificationEvent,
+  type TerminalName,
 } from "@openmill/core";
 import {
   getJob,
@@ -18,10 +19,15 @@ import {
 } from "@openmill/db";
 import { notificationPayload } from "../notifier/index.ts";
 import { jobDir } from "../paths.ts";
+import type { Terminal } from "../terminal/types.ts";
 import type { MillContext } from "./context.ts";
 
 export const SESSION_OPEN_REASON =
   "someone is still using the previous session in the job's window; follow-ups start when it stops";
+
+export function terminalFor(ctx: MillContext, job: Job): Terminal {
+  return ctx.terminals[(job.terminal ?? "rex") as TerminalName];
+}
 
 interface Transition {
   from?: readonly JobState[];
@@ -111,7 +117,7 @@ export async function endRun(
   if (run.blockId) {
     try {
       await mkdir(join(jobDir(ctx.paths, job.repoPath, job.id), "runs"), { recursive: true });
-      await writeFile(capturePath(ctx, job, run), await ctx.terminal.capture(run.blockId));
+      await writeFile(capturePath(ctx, job, run), await terminalFor(ctx, job).capture(run.blockId));
     } catch (error) {
       ctx.log(`saving the window of ${job.id} failed: ${String(error)}`);
     }
@@ -120,12 +126,12 @@ export async function endRun(
   updateRun(ctx.db, run.id, { endedAt: run.endedAt ?? new Date(), result, waitingSince: null });
 }
 
-export async function closeWindow(ctx: MillContext, run: Run): Promise<void> {
+export async function closeWindow(ctx: MillContext, job: Job, run: Run): Promise<void> {
   if (!run.blockId) {
     return;
   }
 
-  await ctx.terminal
+  await terminalFor(ctx, job)
     .close(run.blockId)
     .catch((error: unknown) => ctx.log(`closing window ${run.blockId} failed: ${String(error)}`));
 }

@@ -12,6 +12,8 @@ describe("config", () => {
     expect(parseConfigValue("permission_mode", "auto")).toEqual({ ok: true, value: "auto" });
     expect(parseConfigValue("permission_mode", "bypass")).toEqual({ ok: true, value: "bypass" });
     expect(parseConfigValue("permission_mode", "manual").ok).toBe(false);
+    expect(parseConfigValue("terminal", "herdr")).toEqual({ ok: true, value: "herdr" });
+    expect(parseConfigValue("terminal", "tmux").ok).toBe(false);
     expect(parseConfigValue("model", "opus")).toEqual({ ok: true, value: "opus" });
     expect(parseConfigValue("notify_desktop", "false")).toEqual({ ok: true, value: false });
     expect(parseConfigValue("notify_desktop", "no").ok).toBe(false);

@@ -11,6 +11,7 @@ export interface Paths {
   pid: string;
   log: string;
   rexSession: string;
+  herdrWorkspace: string;
   jobsDir: string;
   worktreesDir: string;
 }
@@ -27,6 +28,7 @@ export function resolvePaths(): Paths {
     pid: join(home, "server.pid"),
     log: join(home, "server.log"),
     rexSession: join(home, "rex-session"),
+    herdrWorkspace: join(home, "herdr-workspace"),
     jobsDir: join(home, "jobs"),
     worktreesDir: join(home, "worktrees"),
   };
