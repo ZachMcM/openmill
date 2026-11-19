@@ -17,8 +17,8 @@ already use.
 ## Install
 
 Requires macOS or Linux, Node 24 or later, `git`, the GitHub CLI (`gh`) signed in with
-`gh auth login`, a terminal ([Rex](https://www.superlogical.com/rex) or
-[herdr](https://herdr.dev)), and at least one signed-in agent CLI: Claude Code (`claude`) or
+`gh auth login`, a terminal ([Rex](https://www.superlogical.com/rex),
+[herdr](https://herdr.dev), or [T3 Code](https://t3.codes) for Claude jobs), and at least one signed-in agent CLI: Claude Code (`claude`) or
 Codex (`codex`).
 
 ```sh
@@ -96,6 +96,14 @@ Every job runs as an interactive agent session in its own window: a window in th
 Rex session, or a tab in the `openmill` workspace of your default herdr server, which must
 already be running. New windows open in the background, so a new job never takes your screen.
 Run `openmill open <id>` to watch a job, and type into its window to take it over.
+
+With `terminal` set to `t3code`, Claude jobs run as threads in T3 Code instead, and you watch and
+answer them in the T3 app. T3 Code must be running, and the repo must be a project in it.
+`openmill install` writes `~/.openmill/t3-hooks.json` and prints the launch args for a Claude
+provider named `openmill`, which you add in T3 Code under Settings > Providers. The server signs
+in to T3 Code by minting a pairing code with the `t3` CLI and keeps the token in
+`~/.openmill/t3-token.json`. `openmill open` opens the thread in the T3 web app and prints its
+link. Codex jobs can't run in T3 Code yet.
 
 A job is done when its branch has a draft PR. When the agent stops without one, openmill asks it
 once to open the PR or ask its question. If it stops again, the job moves to `needs_input` and
@@ -250,7 +258,7 @@ Config lives in `~/.openmill/config.json`. Read and change it with `openmill con
 | `concurrency`       | `2`      | Jobs that can run at once. `needs_input` jobs don't count     |
 | `agent`             | `claude` | The coding agent                                              |
 | `permission_mode`   | `auto`   | `auto` for the agent's auto mode, or `bypass` to skip prompts |
-| `terminal`          | `rex`    | `rex` or `herdr`, where job windows open                      |
+| `terminal`          | `rex`    | `rex`, `herdr`, or `t3code`, where jobs run                   |
 | `model`             | unset    | Model passed to the agent. Unset uses the agent's default     |
 | `effort`            | `medium` | A level the agent and model support (see below)               |
 | `notify_desktop`    | `true`   | Send desktop notifications                                    |

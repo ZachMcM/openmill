@@ -20,7 +20,7 @@ import type { Agent, RunInput } from "../agent/types.ts";
 import { ensureWorktree, fetchDefaultBranch, git, withRepoLock } from "../git.ts";
 import { jobDir } from "../paths.ts";
 import type { MillContext } from "./context.ts";
-import { closeWindow, fail, terminalFor, transition } from "./lifecycle.ts";
+import { closeWindow, fail, hosted, terminalFor, transition } from "./lifecycle.ts";
 
 export function permissionMode(ctx: MillContext, job: Job): PermissionMode {
   return (job.permissionMode ?? ctx.config.permission_mode) as PermissionMode;
@@ -93,6 +93,12 @@ async function spawn(
     throw new Error(readiness.reason);
   }
 
+  if (hosted(job)) {
+    await record(ctx, job, run, await startOnHost(ctx, job, run, agent, previous, resume, message));
+
+    return;
+  }
+
   const terminal = terminalFor(ctx, job);
   const terminalReadiness = await terminal.ready();
 
@@ -126,6 +132,10 @@ async function spawn(
     replace,
   });
 
+  await record(ctx, job, run, blockId);
+}
+
+async function record(ctx: MillContext, job: Job, run: Run, blockId: string): Promise<void> {
   updateRun(ctx.db, run.id, { blockId });
 
   if (getJob(ctx.db, job.key)?.state === "running" && latestRun(ctx.db, job.key)?.id === run.id) {
@@ -133,6 +143,51 @@ async function spawn(
   } else {
     await closeWindow(ctx, job, { ...run, blockId });
   }
+}
+
+async function startOnHost(
+  ctx: MillContext,
+  job: Job,
+  run: Run,
+  agent: Agent,
+  previous: Run | undefined,
+  resume: boolean,
+  message: string | undefined,
+): Promise<string> {
+  const readiness = await ctx.host.ready();
+
+  if (!readiness.ok) {
+    throw new Error(`${readiness.reason}, then run openmill requeue ${job.id}`);
+  }
+
+  const input = await prepare(ctx, job, run);
+  const thread = previous?.blockId && (resume || run.kind !== "feature") ? previous.blockId : null;
+
+  if (thread) {
+    const text = resume ? message : prompt(agent, job, run, input);
+
+    if (text) {
+      await ctx.host.send(thread, text);
+    }
+
+    return thread;
+  }
+
+  if (previous) {
+    await closeWindow(ctx, job, previous);
+  }
+
+  const { threadId } = await ctx.host.start({
+    repoPath: job.repoPath,
+    worktreePath: job.worktreePath,
+    title: job.id,
+    prompt: prompt(agent, job, run, input),
+    model: input.model,
+    effort: input.effort,
+    permissionMode: input.permissionMode,
+  });
+
+  return threadId;
 }
 
 async function prepare(ctx: MillContext, job: Job, run: Run): Promise<RunInput> {

@@ -35,8 +35,8 @@ import {
   finish,
   needsInput,
   send,
-  terminalFor,
   transition,
+  windowAlive,
 } from "./lifecycle.ts";
 
 const PR_STATE_EVENTS: ReadonlyArray<[PrEvent, JobState]> = [
@@ -402,9 +402,7 @@ async function sessionBusy(ctx: MillContext, job: Job): Promise<boolean> {
     return false;
   }
 
-  return (await terminalFor(ctx, job).list()).some(
-    (block) => block.blockId === run.blockId && block.alive,
-  );
+  return windowAlive(ctx, job, run.blockId);
 }
 
 async function cleanUpMerged(ctx: MillContext, job: Job): Promise<void> {
