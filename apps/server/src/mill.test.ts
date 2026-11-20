@@ -2,10 +2,20 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_CONFIG } from "@openmill/core";
-import { getJob, insertJob, insertRun, latestRun, openDb, type Db } from "@openmill/db";
+import {
+  getJob,
+  insertJob,
+  insertRun,
+  latestRun,
+  openDb,
+  updateJob,
+  updateRun,
+  type Db,
+} from "@openmill/db";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { claudeAgent } from "./agent/claude.ts";
 import type { Agent } from "./agent/types.ts";
+import { branchState } from "./git.ts";
 import type { GitHub } from "./github.ts";
 import type { Host } from "./host/types.ts";
 import { Mill } from "./mill.ts";
@@ -15,6 +25,11 @@ import type { Terminal, TerminalBlock } from "./terminal/types.ts";
 vi.mock("./notifier/index.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./notifier/index.ts")>()),
   createNotify: () => () => {},
+}));
+
+vi.mock("./git.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./git.ts")>()),
+  branchState: vi.fn<(typeof import("./git.ts"))["branchState"]>(),
 }));
 
 let home: string;
@@ -72,6 +87,18 @@ function job(id: string, state: string, blockId: string | null, terminalName?: s
   });
 
   return row.key;
+}
+
+function editTurn(id: string, blockId: string): number {
+  const key = job(id, "running", blockId);
+
+  updateJob(db, key, { prUrl: "https://github.com/o/r/pull/1" });
+  updateRun(db, latestRun(db, key)?.id as number, {
+    endedAt: new Date(),
+    result: { status: "done" },
+  });
+
+  return key;
 }
 
 function mill(term: Terminal, gh = github(), herdr = terminal([])): Mill {
@@ -169,6 +196,30 @@ describe("startup reconciliation", () => {
     expect(latestRun(db, key)?.result?.reason).toBe("rex not found");
     expect(getJob(db, done)?.state).toBe("done");
     expect(getJob(db, herdrJob)?.state).toBe("running");
+  });
+
+  describe("edit turns", () => {
+    it("finishes as done when the branch is clean and pushed", async () => {
+      const key = editTurn("login", "block:a");
+
+      vi.mocked(branchState).mockResolvedValue({ progressed: true, unpushed: false, dirty: false });
+      await reconcile(terminal([{ blockId: "block:a", label: "login", alive: true }]));
+
+      expect(getJob(db, key)).toMatchObject({ state: "done", blockedReason: null });
+    });
+
+    it("moves to needs_input instead of failed when unpushed work outlives its window", async () => {
+      const key = editTurn("login", "block:a");
+
+      vi.mocked(branchState).mockResolvedValue({ progressed: true, unpushed: true, dirty: false });
+      await reconcile(terminal([]));
+
+      expect(getJob(db, key)).toMatchObject({
+        state: "needs_input",
+        blockedReason: "the session ended with uncommitted or unpushed edits",
+      });
+      expect(latestRun(db, key)?.result).toEqual({ status: "done" });
+    });
   });
 });
 

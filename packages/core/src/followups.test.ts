@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   decideFollowup,
+  editTurnOutcome,
   followupOutcome,
   followupAttempts,
   pushModeFor,
@@ -202,6 +203,25 @@ describe("followupOutcome", () => {
     }
 
     expect(followupOutcome({ ...pushed, progressed: false }, true, true)).toBe("needs_input");
+  });
+});
+
+describe("editTurnOutcome", () => {
+  const clean = { progressed: false, unpushed: false, dirty: false };
+
+  it("finishes a clean, pushed branch whether or not the turn committed", () => {
+    expect(editTurnOutcome(clean, false)).toBe("done");
+    expect(editTurnOutcome({ ...clean, progressed: true }, true)).toBe("done");
+  });
+
+  it("blocks the first stop, then asks a human, when edits are uncommitted or unpushed", () => {
+    for (const branch of [
+      { ...clean, dirty: true },
+      { ...clean, progressed: true, unpushed: true },
+    ]) {
+      expect(editTurnOutcome(branch, false)).toBe("block");
+      expect(editTurnOutcome(branch, true)).toBe("needs_input");
+    }
   });
 });
 
