@@ -32,6 +32,14 @@ job stays `running`. `openmill ls` and `openmill show` print it as
 Windows stay open after a job ends and keep running when the server restarts. When a run ends,
 openmill saves the window's text to the job's `runs` folder.
 
+To change a `done` job's PR, type a new prompt into its window. The job moves to `running`, and
+the server holds follow-ups and restacks until the turn ends. When the agent stops with a clean
+worktree and every commit pushed, the job goes back to `done` and any held follow-ups start.
+If edits are uncommitted or unpushed, openmill asks the agent once to commit and push them. If
+it stops again, the job moves to `needs_input` with a notification, and your reply resumes the
+turn. If the session ends with unpushed edits, the job stays in `needs_input`, and
+`openmill requeue <id>` moves it back to `done`.
+
 Once a job has a draft PR, the server checks it with conditional GitHub REST requests as often as
 once a second. Those return `304 Not Modified` until something changes and don't count against
 your rate limit. When the PR, its check runs, or its commit statuses change, the server fetches

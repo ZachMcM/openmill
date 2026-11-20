@@ -1,6 +1,9 @@
 import {
+  EDIT_BLOCK_REASON,
   FOLLOWUP_BLOCK_REASON,
+  SESSION_STATES,
   STOP_BLOCK_REASON,
+  editTurnOutcome,
   followupOutcome,
   stopDecision,
   triggerCleared,
@@ -20,6 +23,7 @@ import {
   fail,
   findDraft,
   finish,
+  inEditTurn,
   inSession,
   notify,
   send,
@@ -30,6 +34,10 @@ import { permissionMode } from "./session.ts";
 const NO_PR_REASON = "the agent session ended without a draft PR";
 
 const UNPUSHED_REASON = "the follow-up session ended before its changes were pushed";
+
+const EDIT_UNPUSHED_REASON = "the agent stopped with uncommitted or unpushed edits";
+
+const EDIT_GONE_REASON = "the session ended with uncommitted or unpushed edits";
 
 export interface HookResult {
   reply: unknown;
@@ -105,7 +113,7 @@ async function dispatch(
           `auto mode isn't available for ${run.model ?? "the default model"}; set permission_mode to bypass or pick a supported model`,
         );
       } else {
-        onPrompt(ctx, job, run);
+        await onPrompt(ctx, job, run);
       }
 
       return null;
@@ -127,7 +135,7 @@ async function dispatch(
 function toolUseDenial(job: Job, run: Run, command: string): string | undefined {
   return (
     draftGateDenial(command) ??
-    (run.gate
+    (run.gate && !inEditTurn(job, run)
       ? pushGateDenial(command, { open: run.gate === "open", branch: job.branchName })
       : undefined)
   );
@@ -155,6 +163,10 @@ async function onStop(
 
   if (event.pendingWork) {
     return null;
+  }
+
+  if (inEditTurn(job, run)) {
+    return onEditTurnStop(ctx, job, run, agent, event);
   }
 
   let outcome: FollowupOutcome;
@@ -198,13 +210,14 @@ async function onStop(
     case "block":
       return agent.blockStop(run.kind === "feature" ? STOP_BLOCK_REASON : FOLLOWUP_BLOCK_REASON);
     case "needs_input": {
-      const transcript = event.transcriptPath ?? run.transcriptPath;
-      const reason =
-        event.lastMessage ||
-        (transcript && (await agent.lastMessage(transcript).catch(() => undefined))) ||
-        (run.kind === "feature"
+      const reason = await stopMessage(
+        agent,
+        run,
+        event,
+        run.kind === "feature"
           ? "the agent stopped without a draft PR"
-          : "the agent stopped without pushing its changes");
+          : "the agent stopped without pushing its changes",
+      );
 
       if (transition(ctx, job.key, { from: ["running"], to: "needs_input" })) {
         updateRun(ctx.db, run.id, { result: { status: "needs_input", reason } });
@@ -216,7 +229,98 @@ async function onStop(
   }
 }
 
-function onPrompt(ctx: MillContext, job: Job, run: Run): void {
+async function onEditTurnStop(
+  ctx: MillContext,
+  job: Job,
+  run: Run,
+  agent: Agent,
+  event: Extract<HookEvent, { type: "stop" }>,
+): Promise<unknown> {
+  const outcome = await editTurnState(ctx, job, run, event.stopHookActive);
+
+  if (outcome === "done") {
+    endEditTurn(ctx, job.key);
+
+    return null;
+  }
+
+  if (outcome === "block") {
+    return agent.blockStop(EDIT_BLOCK_REASON);
+  }
+
+  const reason = await stopMessage(agent, run, event, EDIT_UNPUSHED_REASON);
+
+  if (
+    transition(ctx, job.key, {
+      from: ["running"],
+      to: "needs_input",
+      fields: { blockedReason: null },
+    })
+  ) {
+    notify(ctx, job.key, "running", "needs_input", reason);
+  }
+
+  return null;
+}
+
+async function stopMessage(
+  agent: Agent,
+  run: Run,
+  event: Extract<HookEvent, { type: "stop" }>,
+  fallback: string,
+): Promise<string> {
+  const transcript = event.transcriptPath ?? run.transcriptPath;
+
+  return (
+    event.lastMessage ||
+    (transcript && (await agent.lastMessage(transcript).catch(() => undefined))) ||
+    fallback
+  );
+}
+
+export async function settleEditTurn(
+  ctx: MillContext,
+  job: Job,
+  run: Run,
+  windowGone: boolean,
+): Promise<void> {
+  if ((await editTurnState(ctx, job, run, true)) === "done") {
+    endEditTurn(ctx, job.key);
+  } else if (windowGone) {
+    leaveEditTurn(ctx, job.key);
+  }
+}
+
+function endEditTurn(ctx: MillContext, key: number): void {
+  transition(ctx, key, { from: SESSION_STATES, to: "done", fields: { blockedReason: null } });
+}
+
+function leaveEditTurn(ctx: MillContext, key: number): void {
+  const fields = { blockedReason: EDIT_GONE_REASON };
+
+  if (transition(ctx, key, { from: ["running"], to: "needs_input", fields })) {
+    notify(ctx, key, "running", "needs_input", EDIT_GONE_REASON);
+  } else if (getJob(ctx.db, key)?.state === "needs_input") {
+    updateJob(ctx.db, key, fields);
+  }
+}
+
+async function editTurnState(
+  ctx: MillContext,
+  job: Job,
+  run: Run,
+  stopHookActive: boolean,
+): Promise<"done" | "block" | "needs_input"> {
+  try {
+    return editTurnOutcome(await readBranch(ctx, job, run), stopHookActive);
+  } catch (error) {
+    ctx.log(`reading the branch of ${job.id} failed: ${String(error)}`);
+
+    return "needs_input";
+  }
+}
+
+async function onPrompt(ctx: MillContext, job: Job, run: Run): Promise<void> {
   if (job.state === "awaiting_push") {
     updateRun(ctx.db, run.id, { gate: "open" });
     transition(ctx, job.key, {
@@ -228,6 +332,14 @@ function onPrompt(ctx: MillContext, job: Job, run: Run): void {
     resume(ctx, job, run);
   } else if (job.state !== "running") {
     updateRun(ctx.db, run.id, { busy: true });
+
+    if (job.state === "done" && job.prUrl) {
+      if (!run.endedAt) {
+        await endRun(ctx, job, run, run.result ?? { status: "done" });
+      }
+
+      transition(ctx, job.key, { from: ["done"], to: "running", fields: { blockedReason: null } });
+    }
   }
 }
 
@@ -236,7 +348,10 @@ function resume(ctx: MillContext, job: Job, run: Run): Job {
     return job;
   }
 
-  updateRun(ctx.db, run.id, { result: null });
+  if (!inEditTurn(job, run)) {
+    updateRun(ctx.db, run.id, { result: null });
+  }
+
   transition(ctx, job.key, {
     from: ["needs_input"],
     to: "running",
@@ -253,6 +368,12 @@ async function onSessionEnd(ctx: MillContext, job: Job, run: Run): Promise<void>
     }
 
     leftSession(ctx, job.key);
+
+    return;
+  }
+
+  if (inEditTurn(job, run)) {
+    await settleEditTurn(ctx, job, run, true);
 
     return;
   }

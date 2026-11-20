@@ -151,3 +151,14 @@ export function followupOutcome(
 
   return stopHookActive ? "needs_input" : "block";
 }
+
+export function editTurnOutcome(
+  branch: BranchState,
+  stopHookActive: boolean,
+): "done" | "block" | "needs_input" {
+  if (!branch.dirty && !branch.unpushed) {
+    return "done";
+  }
+
+  return stopHookActive ? "needs_input" : "block";
+}

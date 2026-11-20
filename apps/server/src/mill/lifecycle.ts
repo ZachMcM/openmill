@@ -74,6 +74,10 @@ export function inSession(job: Job): boolean {
   );
 }
 
+export function inEditTurn(job: Job, run: Run): boolean {
+  return SESSION_STATES.includes(job.state as JobState) && run.endedAt !== null;
+}
+
 export function finish(ctx: MillContext, key: number, prUrl: string): void {
   const previous = transition(ctx, key, { to: "done", fields: { prUrl, blockedReason: null } });
 
