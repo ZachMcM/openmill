@@ -25,10 +25,18 @@ export function jobState(job: { state: string; waitingSince: number | null }): s
     return state(job.state);
   }
 
-  const minutes = Math.floor((Date.now() - job.waitingSince) / 60_000);
-  const waited = minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h`;
+  return `${state(job.state)}, ${pc.yellow(`waiting for permission (${age(job.waitingSince)})`)}`;
+}
 
-  return `${state(job.state)}, ${pc.yellow(`waiting for permission (${waited})`)}`;
+export function age(since: number): string {
+  const minutes = Math.floor((Date.now() - since) / 60_000);
+  const hours = Math.floor(minutes / 60);
+
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+
+  return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
 }
 
 export function warn(message: string): void {

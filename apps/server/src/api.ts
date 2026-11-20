@@ -1,4 +1,4 @@
-import { AGENTS, PERMISSION_MODES, TERMINALS } from "@openmill/core";
+import { AGENTS, JOB_STATES, PERMISSION_MODES, TERMINALS } from "@openmill/core";
 import { z } from "zod";
 
 export const addRequestSchema = z.object({
@@ -36,6 +36,7 @@ export interface JobSummary {
   sessionId: string | null;
   prUrl: string | null;
   waitingSince: number | null;
+  updatedAt: number;
 }
 
 export interface JobDetail extends JobSummary {
@@ -50,6 +51,15 @@ export interface JobDetail extends JobSummary {
 }
 
 export const jobQuerySchema = z.object({ repo: z.string().optional() });
+
+export const jobListQuerySchema = z.object({
+  since: z.iso.datetime({ offset: true }).optional(),
+  state: z.union([z.enum(JOB_STATES), z.array(z.enum(JOB_STATES))]).optional(),
+  repo: z.string().min(1).optional(),
+  all: z.literal("true").optional(),
+});
+
+export type JobListQuery = z.infer<typeof jobListQuerySchema>;
 
 export const configSetSchema = z.object({ value: z.string() });
 
