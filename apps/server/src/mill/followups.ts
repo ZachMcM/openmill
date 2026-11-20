@@ -1,12 +1,14 @@
 import {
   SESSION_STATES,
   WATCHED_STATES,
+  conflictAttempts,
   conflictReason,
   decideConflict,
   decideFollowup,
   prNotificationFor,
   stackedOn,
   pushModeFor,
+  type ConflictDecision,
   type FollowupDecision,
   type JobState,
   type PrEvent,
@@ -73,11 +75,17 @@ export function applyPrEvents(
 export function applyMergeable(ctx: MillContext, key: number, mergeable: boolean | null): void {
   const job = getJob(ctx.db, key);
 
-  if (!job?.prBaseBranch) {
-    return;
+  if (job && conflictDecision(ctx, job, mergeable) === "clear") {
+    transition(ctx, key, { from: ["needs_input"], to: "done", fields: { blockedReason: null } });
+  }
+}
+
+function conflictDecision(ctx: MillContext, job: Job, mergeable: boolean | null): ConflictDecision {
+  if (!job.prBaseBranch) {
+    return "none";
   }
 
-  const decision = decideConflict({
+  return decideConflict({
     state: job.state as JobState,
     restacking: job.restack !== null,
     parentRestacking: parentRestacking(ctx, job),
@@ -85,12 +93,6 @@ export function applyMergeable(ctx: MillContext, key: number, mergeable: boolean
     base: job.prBaseBranch,
     mergeable,
   });
-
-  if (decision === "flag") {
-    needsInput(ctx, key, conflictReason(job.prBaseBranch));
-  } else if (decision === "clear") {
-    transition(ctx, key, { from: ["needs_input"], to: "done", fields: { blockedReason: null } });
-  }
 }
 
 const RESTACK_RUN_STATES: readonly JobState[] = [
@@ -159,6 +161,8 @@ export function followUp(ctx: MillContext): void {
 
     if (restack) {
       inBackground(ctx, job, () => restackJob(ctx, job.key, restack));
+    } else if (conflictDecision(ctx, job, storedMergeable(ctx, job)) === "reconcile") {
+      inBackground(ctx, job, () => reconcile(ctx, job.key));
     } else if (decide(ctx, job).action !== "none") {
       inBackground(ctx, job, () => prepareFollowup(ctx, job.key));
     }
@@ -174,9 +178,19 @@ export async function completeFollowup(ctx: MillContext, key: number, run: Run):
     } catch (error) {
       ctx.log(`retargeting ${getJob(ctx.db, key)?.id} after its restack failed: ${String(error)}`);
     }
+
+    if (restack.baseSha) {
+      updateObservation(ctx.db, key, { mergeable: null });
+    }
   }
 
   finish(ctx, key, getJob(ctx.db, key)?.prUrl as string);
+}
+
+function storedMergeable(ctx: MillContext, job: Job): boolean | null {
+  const row = getObservation(ctx.db, job.key);
+
+  return row?.prUrl === job.prUrl ? row.mergeable : null;
 }
 
 function observationOf(ctx: MillContext, job: Job): PrObservation | undefined {
@@ -272,6 +286,43 @@ async function prepareFollowup(ctx: MillContext, key: number): Promise<void> {
   });
 }
 
+async function reconcile(ctx: MillContext, key: number): Promise<void> {
+  const job = getJob(ctx.db, key);
+  const base = job?.prBaseBranch;
+
+  if (!job || !base) {
+    return;
+  }
+
+  const record = await withRepoLock(job.repoPath, async () => {
+    await fetchBranch(job);
+
+    const cwd = job.worktreePath;
+
+    return {
+      base,
+      cut: await git(cwd, ["merge-base", `origin/${job.branchName}`, `origin/${base}`]),
+      baseSha: await git(cwd, ["rev-parse", `origin/${base}`]),
+    };
+  });
+
+  if (record.cut === record.baseSha) {
+    updateObservation(ctx.db, key, { mergeable: null });
+
+    return;
+  }
+
+  if (
+    conflictAttempts(listRuns(ctx.db, key), base, record.baseSha) >= ctx.config.followup_attempts
+  ) {
+    needsInput(ctx, key, conflictReason(base), true);
+
+    return;
+  }
+
+  await restackJob(ctx, key, record);
+}
+
 async function restackJob(ctx: MillContext, key: number, record: RestackRecord): Promise<void> {
   const { base, cut } = record;
   const job = getJob(ctx.db, key);
@@ -323,6 +374,7 @@ async function restackJob(ctx: MillContext, key: number, record: RestackRecord):
   }
 
   if (!landed.conflict) {
+    updateObservation(ctx.db, key, { mergeable: null });
     await landRestack(ctx, key, landed.head, record);
 
     return;

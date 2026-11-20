@@ -49,8 +49,11 @@ poll every 120 seconds catches anything the cheap checks miss, such as a resolve
 GitHub rate limits the fast checks, they pause and the 120-second poll keeps running.
 
 The server notifies you when the PR's checks all pass, and moves the job to `merged` or `closed`
-when the PR does. When the PR conflicts with its base branch, the job moves to `needs_input`
-with a notification, and back to `done` once the conflict is fixed. Merging removes the job's
+when the PR does. When the PR conflicts with its base branch, openmill rebases it onto the base
+branch and force-pushes with a lease. If the rebase conflicts, a reconciliation run resolves it
+under the [`review_push`](./configuration.md) gate. After [`followup_attempts`](./configuration.md)
+failed runs against the same base commit, the job moves to `needs_input` with a notification, and
+back to `done` once the conflict is fixed. Merging removes the job's
 worktree and local branch. Reviews and threads only count when they come from the repo's owners,
 members, or collaborators, or from a login in [`trusted_bots`](./configuration.md). Set `OPENMILL_DEBUG=1` before the
 server starts to log the ones it ignores.
@@ -80,7 +83,8 @@ dependency is `failed`, `needs_input`, `cancelled`, or `closed`, the jobs that d
 When a parent PR merges, openmill rebases each child onto the parent's base, force-pushes with a
 lease, and retargets the child's PR. It works one level of the stack at a time. A rebase that
 conflicts starts a restack run, where the agent resolves the conflicts and follows the same push
-gate as review follow-ups.
+gate as review follow-ups. A conflict with a parent's branch, such as after a follow-up push to
+the parent, is reconciled the same way without waiting for the parent to merge.
 
 ## Job states
 

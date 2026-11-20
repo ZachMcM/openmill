@@ -128,6 +128,7 @@ export interface NextRunRecord {
 export interface RestackRecord {
   base: string;
   cut: string;
+  baseSha?: string;
 }
 
 export interface RunResultRecord {

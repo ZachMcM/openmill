@@ -14,6 +14,8 @@ export interface FollowupTrigger {
 export interface PastRun {
   kind: RunKind;
   trigger: FollowupTrigger | null;
+  startSha?: string | null;
+  restack?: { base: string; cut: string; baseSha?: string } | null;
 }
 
 export interface FollowupInput {
@@ -43,6 +45,20 @@ export function followupAttempts(runs: readonly PastRun[], trigger: FollowupTrig
     }
 
     attempts.add(`${run.trigger.reviewId}|${run.trigger.headSha}`);
+  }
+
+  return attempts.size;
+}
+
+export function conflictAttempts(runs: readonly PastRun[], base: string, baseSha: string): number {
+  const attempts = new Set<string | null | undefined>();
+
+  for (const run of runs.toReversed()) {
+    if (run.kind !== "restack" || run.restack?.base !== base || run.restack.baseSha !== baseSha) {
+      break;
+    }
+
+    attempts.add(run.startSha);
   }
 
   return attempts.size;
