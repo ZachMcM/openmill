@@ -14,6 +14,7 @@ export const READY_CHECKS: Record<AgentName, Array<[string, ...string[]]>> = {
 export const TERMINAL_CHECKS: Record<WindowTerminal, Array<[string, ...string[]]>> = {
   rex: [["rex", "version"]],
   herdr: [["herdr", "--version"]],
+  tmux: [["tmux", "-V"]],
 };
 
 export const CODEX_MODELS_COMMAND: [string, ...string[]] = ["codex", "debug", "models"];

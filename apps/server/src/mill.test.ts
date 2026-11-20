@@ -80,7 +80,7 @@ function mill(term: Terminal, gh = github(), herdr = terminal([])): Mill {
     paths,
     config: DEFAULT_CONFIG,
     notifiers: [],
-    terminals: { rex: term, herdr },
+    terminals: { rex: term, herdr, tmux: terminal([]) },
     host: {} as Host,
     agents: { claude: claudeAgent, codex: {} as Agent },
     github: gh,

@@ -107,7 +107,7 @@ async function checkPrerequisites(): Promise<Ready> {
 
   if (terminals.length === 0) {
     throw new Error(
-      "No terminal is ready. Install rex, herdr, or T3 Code; openmill runs every agent in a terminal window or a T3 thread.",
+      "No terminal is ready. Install rex, herdr, tmux, or T3 Code; openmill runs every agent in a terminal window or a T3 thread.",
     );
   }
 
@@ -248,6 +248,7 @@ async function codexModels(): Promise<ModelEfforts[]> {
 const TERMINAL_LABELS: Record<TerminalName, string> = {
   rex: "Rex",
   herdr: "herdr",
+  tmux: "tmux",
   t3code: "T3 Code",
 };
 

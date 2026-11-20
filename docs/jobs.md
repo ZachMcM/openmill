@@ -4,9 +4,12 @@ This page covers how a queued doc runs: its window, when it's done, how the serv
 follow-ups, stacks, and the job states.
 
 Every job runs as an interactive agent session in its own window: a window in the `openmill`
-Rex session, or a tab in the `openmill` workspace of your default herdr server, which must
-already be running. New windows open in the background, so a new job never takes your screen.
-Run `openmill open <id>` to watch a job, and type into its window to take it over.
+Rex session, a tab in the `openmill` workspace of your default herdr server, which must
+already be running, or a window in the `openmill` session of your default tmux server. openmill
+creates the tmux session when it's missing, so tmux jobs run with no client attached; run
+`tmux attach -t openmill` to watch them. New windows open in the background, so a new job never
+takes your screen. Run `openmill open <id>` to watch a job, and type into its window to take it
+over. With tmux, `openmill open` switches your attached tmux client to the job's window.
 
 With [`terminal`](./configuration.md) set to `t3code`, Claude jobs run as threads in T3 Code instead, and you watch and
 answer them in the T3 app. T3 Code must be running, and the repo must be a project in it.

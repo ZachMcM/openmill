@@ -13,6 +13,7 @@ import { Mill } from "./mill.ts";
 import { readNotifiers } from "./notifier-store.ts";
 import { resolvePaths } from "./paths.ts";
 import { createHerdrTerminal } from "./terminal/herdr.ts";
+import { createTmuxTerminal } from "./terminal/tmux.ts";
 import { createRexTerminal } from "./terminal/rex.ts";
 
 export interface ServerOptions {
@@ -45,6 +46,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       terminals: {
         rex: createRexTerminal(paths.rexSession),
         herdr: createHerdrTerminal(paths.herdrWorkspace),
+        tmux: createTmuxTerminal(paths.tmuxSession),
       },
       host: createT3Host(paths),
       agents: { claude: claudeAgent, codex: codexAgent },

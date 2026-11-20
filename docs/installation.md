@@ -5,7 +5,7 @@ permission modes agents run in.
 
 Requires macOS or Linux, Node 24 or later, `git`, the GitHub CLI (`gh`) signed in with
 `gh auth login`, a terminal ([Rex](https://www.superlogical.com/rex),
-[herdr](https://herdr.dev), or [T3 Code](https://t3.codes) for Claude jobs), and at least one signed-in agent CLI: Claude Code (`claude`) or
+[herdr](https://herdr.dev), tmux 3.0 or later, or [T3 Code](https://t3.codes) for Claude jobs), and at least one signed-in agent CLI: Claude Code (`claude`) or
 Codex (`codex`).
 
 ```sh
