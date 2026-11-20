@@ -37,7 +37,7 @@ import {
   type NextRunRecord,
   type Run,
 } from "@openmill/db";
-import { APPROVED_MESSAGE } from "./agent/prompt.ts";
+import { APPROVED_MESSAGE, REOPENED_MESSAGE } from "./agent/prompt.ts";
 import type { Agent } from "./agent/types.ts";
 import type { AddAction, AddRequest, JobDetail, JobListQuery, JobSummary } from "./api.ts";
 import { writeConfigValue } from "./config-store.ts";
@@ -46,12 +46,11 @@ import { gitRoot } from "./git.ts";
 import type { GitHub } from "./github.ts";
 import type { MillContext } from "./mill/context.ts";
 import { applyMergeable, applyPrEvents, completeFollowup, followUp } from "./mill/followups.ts";
-import { followupState, handleHook, sessionGone, settleEditTurn } from "./mill/hooks.ts";
+import { followupState, handleHook, settleEditTurn } from "./mill/hooks.ts";
 import {
   capturePath,
   closeWindow,
   endRun,
-  fail,
   findDraft,
   finish,
   inEditTurn,
@@ -60,12 +59,12 @@ import {
   terminalFor,
   transition,
 } from "./mill/lifecycle.ts";
-import { graphFor, launch, repoGraph } from "./mill/session.ts";
+import { graphFor, launch, reopen, repoGraph } from "./mill/session.ts";
 import { createNotify, isWebhookUrl, sendTest } from "./notifier/index.ts";
 import { NOTIFIER_LABELS, type NotifierEntry } from "./notifier/types.ts";
 import { writeNotifiers } from "./notifier-store.ts";
 import { branchName, worktreePath, type Paths } from "./paths.ts";
-import type { Terminal } from "./terminal/types.ts";
+import type { Terminal, TerminalBlock } from "./terminal/types.ts";
 import { PrWatcher } from "./watcher.ts";
 
 export interface MillOptions {
@@ -293,8 +292,18 @@ export class Mill {
       db,
       jobs.map((job) => job.key),
     );
+    const blocks = perTerminal(this.ctx, listBlocks);
 
-    return { jobs: jobs.map((job) => summary(job, runs.get(job.key))), hidden };
+    return {
+      jobs: await Promise.all(
+        jobs.map(async (job) => {
+          const run = runs.get(job.key);
+
+          return summary(job, run, await windowClosed(job, run, blocks));
+        }),
+      ),
+      hidden,
+    };
   }
 
   async resolve(id: string, repo?: string): Promise<Job> {
@@ -323,13 +332,16 @@ export class Mill {
     return match;
   }
 
-  show(job: Job): JobDetail {
+  async show(job: Job): Promise<JobDetail> {
     const run = latestRun(this.ctx.db, job.key);
     const current = getJob(this.ctx.db, job.key) ?? job;
     const capture = run ? capturePath(this.ctx, current, run) : undefined;
+    const closed = await windowClosed(current, run, () =>
+      listBlocks(terminalFor(this.ctx, current)),
+    );
 
     return {
-      ...summary(current, run),
+      ...summary(current, run, closed),
       branch: current.branchName,
       worktree: current.worktreePath,
       prBaseBranch: current.prBaseBranch,
@@ -341,19 +353,40 @@ export class Mill {
   }
 
   async open(job: Job): Promise<void> {
-    const blockId = latestRun(this.ctx.db, job.key)?.blockId;
+    const run = latestRun(this.ctx.db, job.key);
 
-    if (!blockId) {
+    if (!run?.blockId) {
       throw new ApiError(409, `${job.id} has no window`);
     }
 
     const terminal = terminalFor(this.ctx, job);
+    const block = (await terminal.list()).find((other) => other.blockId === run.blockId);
 
-    if (!(await terminal.list()).some((block) => block.blockId === blockId)) {
-      throw new ApiError(409, `${job.id}'s window is closed`);
+    if (block?.alive) {
+      await terminal.focus(block.blockId);
+
+      return;
     }
 
-    await terminal.focus(blockId);
+    if (!REOPENABLE_STATES.includes(job.state as JobState)) {
+      throw new ApiError(
+        409,
+        job.state === "failed"
+          ? `${job.id} is failed; run openmill requeue ${job.id}`
+          : `${job.id} is ${job.state} and has no session to open`,
+      );
+    }
+
+    if (!job.sessionId) {
+      throw new ApiError(
+        409,
+        `${job.id}'s session id was never recorded, so it can't be resumed; run openmill requeue ${job.id} to start it fresh`,
+      );
+    }
+
+    const message = job.state === "running" ? REOPENED_MESSAGE : undefined;
+
+    await terminal.focus(await reopen(this.ctx, job, run, message, block?.blockId));
   }
 
   async cancel(job: Job): Promise<JobState> {
@@ -414,10 +447,34 @@ export class Mill {
     const state = current?.state as JobState | undefined;
     const run = latestRun(db, job.key);
 
+    if (
+      state === "running" &&
+      current &&
+      run &&
+      (await windowClosed(current, run, () => listBlocks(terminalFor(this.ctx, current))))
+    ) {
+      if (
+        transition(this.ctx, job.key, {
+          from: ["running"],
+          to: "queued",
+          fields: { blockedReason: null, nextRun: null, sessionId: null },
+        })
+      ) {
+        await endRun(this.ctx, current, run, {
+          status: "failed",
+          reason: "requeued after its window closed",
+        });
+      }
+
+      this.schedule();
+
+      return "queued";
+    }
+
     if (!current || !state || !REQUEUEABLE_STATES.includes(state)) {
       throw new ApiError(
         409,
-        `${job.id} is ${state}; only failed, awaiting_push, and needs_input jobs can be requeued`,
+        `${job.id} is ${state}; only failed, awaiting_push, and needs_input jobs, and running jobs whose window closed, can be requeued`,
       );
     }
 
@@ -608,64 +665,25 @@ export class Mill {
   }
 
   async reconcile(): Promise<void> {
-    const { db, log } = this.ctx;
-    const listing = perTerminal(this.ctx, async (terminal) => {
-      try {
-        const blocks = await terminal.list();
-
-        return {
-          alive: new Set(blocks.filter((block) => block.alive).map((block) => block.blockId)),
-          unreachable: undefined,
-        };
-      } catch (error) {
-        const unreachable = (error as Error).message;
-
-        log(`listing agent windows failed: ${unreachable}`);
-
-        return { alive: new Set<string>(), unreachable };
-      }
-    });
-    const liveness = async (job: Job, blockId: string | null | undefined) => {
-      if (!blockId) {
-        return { gone: true, unreachable: undefined };
-      }
-
-      const { alive, unreachable } = await listing(job);
-
-      return { gone: !alive.has(blockId), unreachable };
-    };
+    const { db } = this.ctx;
     const jobs = listJobs(db).filter((job) => inSession(job));
 
     await Promise.all(
       jobs.map(async (job) => {
         const run = latestRun(db, job.key);
-        const { gone, unreachable } = await liveness(job, run?.blockId);
-        const reason = unreachable ?? "its window closed while the server was stopped";
 
         if (run && inEditTurn(job, run)) {
-          await settleEditTurn(this.ctx, job, run, gone);
-
-          return;
-        }
-
-        if (run && run.kind !== "feature") {
-          const outcome = await followupState(this.ctx, job, run);
-
-          if (outcome === "done") {
+          await settleEditTurn(this.ctx, job, run);
+        } else if (run && run.kind !== "feature") {
+          if ((await followupState(this.ctx, job, run)) === "done") {
             await completeFollowup(this.ctx, job.key, run);
-          } else if (gone) {
-            await sessionGone(this.ctx, job, run, outcome, reason);
           }
+        } else {
+          const prUrl = await findDraft(this.ctx, job);
 
-          return;
-        }
-
-        const prUrl = await findDraft(this.ctx, job);
-
-        if (prUrl) {
-          finish(this.ctx, job.key, prUrl);
-        } else if (gone) {
-          await fail(this.ctx, job.key, run, reason);
+          if (prUrl) {
+            finish(this.ctx, job.key, prUrl);
+          }
         }
       }),
     );
@@ -765,7 +783,31 @@ function planAction(
   return "rejected";
 }
 
-function summary(job: Job, run: Run | undefined): JobSummary {
+const REOPENABLE_STATES: readonly JobState[] = ["running", "needs_input", "awaiting_push", "done"];
+
+const WINDOWED_STATES: readonly JobState[] = ["running", "needs_input", "awaiting_push"];
+
+async function listBlocks(terminal: Terminal): Promise<TerminalBlock[] | undefined> {
+  return terminal.list().catch(() => undefined);
+}
+
+async function windowClosed(
+  job: Job,
+  run: Run | undefined,
+  blocks: (job: Job) => Promise<TerminalBlock[] | undefined>,
+): Promise<boolean> {
+  if (!WINDOWED_STATES.includes(job.state as JobState) || !run?.blockId) {
+    return false;
+  }
+
+  const listed = await blocks(job);
+
+  return (
+    listed !== undefined && !listed.some((block) => block.blockId === run.blockId && block.alive)
+  );
+}
+
+function summary(job: Job, run: Run | undefined, windowClosed: boolean): JobSummary {
   const runReason =
     job.state === "needs_input" || job.state === "failed" ? (run?.result?.reason ?? null) : null;
 
@@ -777,6 +819,7 @@ function summary(job: Job, run: Run | undefined): JobSummary {
     sessionId: job.sessionId,
     prUrl: job.prUrl,
     waitingSince: job.state === "running" ? (run?.waitingSince?.getTime() ?? null) : null,
+    windowClosed,
     updatedAt: job.updatedAt.getTime(),
   };
 }

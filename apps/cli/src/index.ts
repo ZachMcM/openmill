@@ -190,7 +190,7 @@ program
 
 program
   .command("open")
-  .description("focus a job's window in its terminal")
+  .description("focus a job's window, or reopen its session in a new one")
   .argument("<id>")
   .action(async (id: string) => {
     await unwrap(

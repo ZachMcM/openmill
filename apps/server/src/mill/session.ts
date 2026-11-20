@@ -16,9 +16,10 @@ import {
   type Run,
 } from "@openmill/db";
 import { followupPrompt, restackPrompt, startPrompt } from "../agent/prompt.ts";
-import type { Agent, RunInput } from "../agent/types.ts";
+import type { Agent, Launch, RunInput } from "../agent/types.ts";
 import { ensureWorktree, fetchDefaultBranch, git, withRepoLock } from "../git.ts";
 import { jobDir } from "../paths.ts";
+import type { SpawnInput, Terminal } from "../terminal/types.ts";
 import type { MillContext } from "./context.ts";
 import { closeWindow, fail, terminalFor, transition } from "./lifecycle.ts";
 
@@ -75,11 +76,7 @@ async function spawn(
   resume: boolean,
   message: string | undefined,
 ): Promise<void> {
-  const agent = ctx.agents[run.agent];
-
-  if (!agent) {
-    throw new Error(`unknown agent ${run.agent}`);
-  }
+  const agent = agentFor(ctx, run);
 
   if (resume && !job.sessionId) {
     throw new Error(
@@ -87,21 +84,9 @@ async function spawn(
     );
   }
 
-  const readiness = await agent.ready(permissionMode(ctx, job));
-
-  if (!readiness.ok) {
-    throw new Error(readiness.reason);
-  }
-
-  const terminal = terminalFor(ctx, job);
-  const terminalReadiness = await terminal.ready();
-
-  if (!terminalReadiness.ok) {
-    throw new Error(terminalReadiness.reason);
-  }
-
+  const terminal = await readyTerminal(ctx, job, agent);
   const input = await prepare(ctx, job, run);
-  const { command, env } = resume
+  const session = resume
     ? agent.resume(input, message)
     : agent.launch(input, prompt(agent, job, run, input));
 
@@ -118,13 +103,7 @@ async function spawn(
     await closeWindow(ctx, job, previous);
   }
 
-  const blockId = await terminal.spawn({
-    label: job.id,
-    cwd: job.worktreePath,
-    command,
-    env: { ...env, OPENMILL_HOME: ctx.paths.home, OPENMILL_RUN_ID: String(run.id) },
-    replace,
-  });
+  const blockId = await terminal.spawn(spawnInput(ctx, job, run, session, replace));
 
   updateRun(ctx.db, run.id, { blockId });
 
@@ -133,6 +112,70 @@ async function spawn(
   } else {
     await closeWindow(ctx, job, { ...run, blockId });
   }
+}
+
+export async function reopen(
+  ctx: MillContext,
+  job: Job,
+  run: Run,
+  message: string | undefined,
+  replace: string | undefined,
+): Promise<string> {
+  const agent = agentFor(ctx, run);
+  const terminal = await readyTerminal(ctx, job, agent);
+  const input = { ...(await prepare(ctx, job, run)), sessionId: job.sessionId };
+  const session = agent.resume(input, message);
+
+  await agent.trust(job.repoPath);
+
+  const blockId = await terminal.spawn(spawnInput(ctx, job, run, session, replace));
+
+  updateRun(ctx.db, run.id, { blockId });
+
+  return blockId;
+}
+
+function agentFor(ctx: MillContext, run: Run): Agent {
+  const agent = ctx.agents[run.agent];
+
+  if (!agent) {
+    throw new Error(`unknown agent ${run.agent}`);
+  }
+
+  return agent;
+}
+
+async function readyTerminal(ctx: MillContext, job: Job, agent: Agent): Promise<Terminal> {
+  const readiness = await agent.ready(permissionMode(ctx, job));
+
+  if (!readiness.ok) {
+    throw new Error(readiness.reason);
+  }
+
+  const terminal = terminalFor(ctx, job);
+  const terminalReadiness = await terminal.ready();
+
+  if (!terminalReadiness.ok) {
+    throw new Error(terminalReadiness.reason);
+  }
+
+  return terminal;
+}
+
+function spawnInput(
+  ctx: MillContext,
+  job: Job,
+  run: Run,
+  { command, env }: Launch,
+  replace: string | undefined,
+): SpawnInput {
+  return {
+    label: job.id,
+    cwd: job.worktreePath,
+    command,
+    env: { ...env, OPENMILL_HOME: ctx.paths.home, OPENMILL_RUN_ID: String(run.id) },
+    replace,
+  };
 }
 
 async function prepare(ctx: MillContext, job: Job, run: Run): Promise<RunInput> {

@@ -20,12 +20,22 @@ export function state(value: string): string {
   return (STATE_COLORS[value as JobState] ?? pc.reset)(value);
 }
 
-export function jobState(job: { state: string; waitingSince: number | null }): string {
-  if (job.waitingSince === null) {
-    return state(job.state);
+export function jobState(job: {
+  state: string;
+  waitingSince: number | null;
+  windowClosed: boolean;
+}): string {
+  let text = state(job.state);
+
+  if (job.waitingSince !== null) {
+    text += `, ${pc.yellow(`waiting for permission (${age(job.waitingSince)})`)}`;
   }
 
-  return `${state(job.state)}, ${pc.yellow(`waiting for permission (${age(job.waitingSince)})`)}`;
+  if (job.windowClosed) {
+    text += `, ${pc.yellow("window closed")}`;
+  }
+
+  return text;
 }
 
 export function age(since: number): string {

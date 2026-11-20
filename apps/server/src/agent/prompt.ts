@@ -6,6 +6,9 @@ import type { Agent, RunInput } from "./types.ts";
 export const APPROVED_MESSAGE =
   "The human approved these changes. Push and post your thread replies, then stop.";
 
+export const REOPENED_MESSAGE =
+  "Your window was closed and openmill restarted this session. Check where you left off and continue.";
+
 const ASK =
   "To ask a question or report a blocker, write it as a normal message and stop. A human may answer you in this same session.";
 

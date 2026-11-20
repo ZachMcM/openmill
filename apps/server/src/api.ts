@@ -36,6 +36,7 @@ export interface JobSummary {
   sessionId: string | null;
   prUrl: string | null;
   waitingSince: number | null;
+  windowClosed: boolean;
   updatedAt: number;
 }
 
