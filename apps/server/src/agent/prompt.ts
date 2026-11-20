@@ -1,5 +1,6 @@
 import { FOLLOWUP_SKILL, WORKFLOW_SKILL } from "@openmill/assets";
 import type { FollowupTrigger } from "@openmill/core";
+import type { RestackRecord } from "@openmill/db";
 import type { Agent, RunInput } from "./types.ts";
 
 export const APPROVED_MESSAGE =
@@ -55,7 +56,8 @@ export function followupPrompt(
   return `${agent.skillPrompt(FOLLOWUP_SKILL, `${prUrl} ${input.docPath}`)}\n\n${facts}\n`;
 }
 
-export function restackPrompt(input: RunInput, base: string, cut: string, push: boolean): string {
+export function restackPrompt(input: RunInput, restack: RestackRecord, push: boolean): string {
+  const { base, cut } = restack;
   const facts = bullets([
     inWorktree(input.branch),
     `Run \`git rebase --onto origin/${base} ${cut}\` and resolve its conflicts, keeping what each commit on this branch meant to change.`,
@@ -67,5 +69,9 @@ export function restackPrompt(input: RunInput, base: string, cut: string, push: 
     ASK,
   ]);
 
-  return `This branch's parent PR merged, so restack it onto ${base}.\n\n${facts}\n`;
+  const reason = restack.baseSha
+    ? `This branch's PR conflicts with ${base}, so rebase it onto origin/${base}.`
+    : `This branch's parent PR merged, so restack it onto ${base}.`;
+
+  return `${reason}\n\n${facts}\n`;
 }

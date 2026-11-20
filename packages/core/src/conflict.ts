@@ -9,7 +9,7 @@ export interface ConflictInput {
   mergeable: boolean | null;
 }
 
-export type ConflictDecision = "flag" | "clear" | "none";
+export type ConflictDecision = "reconcile" | "clear" | "none";
 
 export function conflictReason(base: string): string {
   return `the PR conflicts with ${base}`;
@@ -22,7 +22,7 @@ export function decideConflict(input: ConflictInput): ConflictDecision {
     !input.restacking &&
     !input.parentRestacking
   ) {
-    return "flag";
+    return "reconcile";
   }
 
   if (

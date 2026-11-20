@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  conflictAttempts,
   decideFollowup,
   editTurnOutcome,
   followupOutcome,
@@ -160,6 +161,33 @@ describe("followupAttempts", () => {
     const run = followup({ checks: ["test"], headSha: "h1" });
 
     expect(followupAttempts([run, run], trigger)).toBe(1);
+  });
+});
+
+describe("conflictAttempts", () => {
+  function reconcile(startSha: string, baseSha?: string): PastRun {
+    return {
+      kind: "restack",
+      trigger: null,
+      startSha,
+      restack: { base: "main", cut: "c1", ...(baseSha ? { baseSha } : {}) },
+    };
+  }
+
+  it("counts consecutive runs against the same base commit", () => {
+    expect(conflictAttempts([reconcile("h1", "b1"), reconcile("h2", "b1")], "main", "b1")).toBe(2);
+  });
+
+  it("stops at a run against another base commit or a follow-up", () => {
+    expect(conflictAttempts([reconcile("h1", "b1"), reconcile("h2", "b2")], "main", "b1")).toBe(0);
+    expect(
+      conflictAttempts([reconcile("h1", "b1"), followup({}), reconcile("h2", "b1")], "main", "b1"),
+    ).toBe(1);
+  });
+
+  it("ignores parent-merge restacks and resumed runs", () => {
+    expect(conflictAttempts([reconcile("h1"), reconcile("h2")], "main", "b1")).toBe(0);
+    expect(conflictAttempts([reconcile("h1", "b1"), reconcile("h1", "b1")], "main", "b1")).toBe(1);
   });
 });
 
