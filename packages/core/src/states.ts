@@ -30,7 +30,7 @@ const TRANSITIONS: Record<JobState, readonly JobState[]> = {
   needs_input: ["running", "done", "failed", "queued", "cancelled", "merged", "closed"],
   awaiting_push: ["running", "queued", "merged", "closed", "cancelled"],
   failed: ["queued", "done", "cancelled", "merged", "closed"],
-  done: ["queued", "needs_input", "cancelled", "merged", "closed"],
+  done: ["queued", "running", "needs_input", "cancelled", "merged", "closed"],
   blocked: ["queued", "blocked", "cancelled"],
   cancelled: [],
   merged: [],

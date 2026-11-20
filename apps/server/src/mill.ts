@@ -46,7 +46,7 @@ import { gitRoot } from "./git.ts";
 import type { GitHub } from "./github.ts";
 import type { MillContext } from "./mill/context.ts";
 import { applyMergeable, applyPrEvents, completeFollowup, followUp } from "./mill/followups.ts";
-import { followupState, handleHook, sessionGone } from "./mill/hooks.ts";
+import { followupState, handleHook, sessionGone, settleEditTurn } from "./mill/hooks.ts";
 import {
   capturePath,
   closeWindow,
@@ -54,6 +54,7 @@ import {
   fail,
   findDraft,
   finish,
+  inEditTurn,
   inSession,
   send,
   terminalFor,
@@ -640,6 +641,12 @@ export class Mill {
         const run = latestRun(db, job.key);
         const { gone, unreachable } = await liveness(job, run?.blockId);
         const reason = unreachable ?? "its window closed while the server was stopped";
+
+        if (run && inEditTurn(job, run)) {
+          await settleEditTurn(this.ctx, job, run, gone);
+
+          return;
+        }
 
         if (run && run.kind !== "feature") {
           const outcome = await followupState(this.ctx, job, run);

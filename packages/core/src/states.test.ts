@@ -60,4 +60,8 @@ describe("follow-up states", () => {
   it("asks a human from done when a follow-up can't start", () => {
     expect(canTransition("done", "needs_input")).toBe(true);
   });
+
+  it("starts an edit turn from done when someone prompts the agent's window", () => {
+    expect(canTransition("done", "running")).toBe(true);
+  });
 });

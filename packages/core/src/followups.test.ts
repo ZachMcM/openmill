@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  conflictAttempts,
   decideFollowup,
+  editTurnOutcome,
   followupOutcome,
   followupAttempts,
   pushModeFor,
@@ -162,6 +164,33 @@ describe("followupAttempts", () => {
   });
 });
 
+describe("conflictAttempts", () => {
+  function reconcile(startSha: string, baseSha?: string): PastRun {
+    return {
+      kind: "restack",
+      trigger: null,
+      startSha,
+      restack: { base: "main", cut: "c1", ...(baseSha ? { baseSha } : {}) },
+    };
+  }
+
+  it("counts consecutive runs against the same base commit", () => {
+    expect(conflictAttempts([reconcile("h1", "b1"), reconcile("h2", "b1")], "main", "b1")).toBe(2);
+  });
+
+  it("stops at a run against another base commit or a follow-up", () => {
+    expect(conflictAttempts([reconcile("h1", "b1"), reconcile("h2", "b2")], "main", "b1")).toBe(0);
+    expect(
+      conflictAttempts([reconcile("h1", "b1"), followup({}), reconcile("h2", "b1")], "main", "b1"),
+    ).toBe(1);
+  });
+
+  it("ignores parent-merge restacks and resumed runs", () => {
+    expect(conflictAttempts([reconcile("h1"), reconcile("h2")], "main", "b1")).toBe(0);
+    expect(conflictAttempts([reconcile("h1", "b1"), reconcile("h1", "b1")], "main", "b1")).toBe(1);
+  });
+});
+
 describe("pushModeFor", () => {
   const both: FollowupTrigger = {
     reviewId: "r1",
@@ -202,6 +231,25 @@ describe("followupOutcome", () => {
     }
 
     expect(followupOutcome({ ...pushed, progressed: false }, true, true)).toBe("needs_input");
+  });
+});
+
+describe("editTurnOutcome", () => {
+  const clean = { progressed: false, unpushed: false, dirty: false };
+
+  it("finishes a clean, pushed branch whether or not the turn committed", () => {
+    expect(editTurnOutcome(clean, false)).toBe("done");
+    expect(editTurnOutcome({ ...clean, progressed: true }, true)).toBe("done");
+  });
+
+  it("blocks the first stop, then asks a human, when edits are uncommitted or unpushed", () => {
+    for (const branch of [
+      { ...clean, dirty: true },
+      { ...clean, progressed: true, unpushed: true },
+    ]) {
+      expect(editTurnOutcome(branch, false)).toBe("block");
+      expect(editTurnOutcome(branch, true)).toBe("needs_input");
+    }
   });
 });
 

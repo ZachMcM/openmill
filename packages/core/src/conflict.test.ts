@@ -18,12 +18,12 @@ const flagged: ConflictInput = {
 };
 
 describe("decideConflict", () => {
-  it("flags a done job whose PR conflicts", () => {
-    expect(decideConflict(done)).toBe("flag");
+  it("reconciles a done job whose PR conflicts", () => {
+    expect(decideConflict(done)).toBe("reconcile");
     expect(decideConflict({ ...done, state: "running" })).toBe("none");
   });
 
-  it("never flags while a restack is pending", () => {
+  it("never reconciles while a restack is pending", () => {
     expect(decideConflict({ ...done, restacking: true })).toBe("none");
     expect(decideConflict({ ...done, parentRestacking: true })).toBe("none");
   });

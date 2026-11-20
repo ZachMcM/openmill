@@ -201,7 +201,7 @@ function prompt(agent: Agent, job: Job, run: Run, input: RunInput): string {
   const restack = run.restack ?? job.restack;
 
   if (run.kind === "restack" && restack) {
-    return restackPrompt(input, restack.base, restack.cut, push);
+    return restackPrompt(input, restack, push);
   }
 
   return startPrompt(agent, input);
