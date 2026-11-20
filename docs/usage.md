@@ -8,10 +8,10 @@ openmill ls                       # list unfinished jobs
 openmill ls --all                 # include merged, cancelled, and closed jobs
 openmill ls --since 2d --state failed   # failed jobs updated in the last two days
 openmill ls --repo .              # jobs in the current repo
-openmill open login               # focus the job's window
+openmill open login               # focus the job's window, or reopen its session
 openmill show login               # worktree, window, session, and transcript
 openmill cancel login             # close the window and cancel the job
-openmill requeue login            # resume a failed job's session in a new window
+openmill requeue login            # resume a failed job, or restart one whose window closed
 openmill clean                    # close the windows of finished jobs
 openmill config set concurrency 3
 openmill config unset model       # back to the default

@@ -58,7 +58,7 @@ export function createApp(mill: Mill, { version, onShutdown }: AppOptions) {
     .get("/jobs/:id", validate("query", jobQuerySchema), async (c) => {
       const job = await mill.resolve(c.req.param("id"), c.req.valid("query").repo);
 
-      return c.json(mill.show(job));
+      return c.json(await mill.show(job));
     })
     .post("/jobs/:id/open", validate("query", jobQuerySchema), async (c) => {
       const job = await mill.resolve(c.req.param("id"), c.req.valid("query").repo);

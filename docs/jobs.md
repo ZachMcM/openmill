@@ -14,8 +14,15 @@ over. With tmux, `openmill open` switches your attached tmux client to the job's
 A job is done when its branch has a draft PR. When the agent stops without one, openmill asks it
 once to open the PR or ask its question. If it stops again, the job moves to `needs_input` and
 you get a [notification](./notifications.md). Answer in the window and the job is `running` again. A `needs_input` job
-doesn't count against [`concurrency`](./configuration.md). If the session ends without a PR, the job fails, and
-`openmill requeue <id>` resumes that session in a new window.
+doesn't count against [`concurrency`](./configuration.md).
+
+A window is only a view onto the job's agent session. Closing it, or exiting the agent with
+Ctrl-C or `/exit`, doesn't change the job. `openmill open <id>` resumes the session in a new
+window, and a `running` job also gets a short message telling the agent to continue where it
+left off. To stop a job, run `openmill cancel <id>`. A job whose agent exits mid-turn stays
+`running` and keeps its `concurrency` slot until you open or cancel it, and `openmill ls` shows
+it as `running, window closed`. If openmill never recorded the session id, `open` can't resume
+it, and `openmill requeue <id>` starts the job fresh in the same worktree.
 
 When the agent waits on a permission prompt for a few seconds, you get one notification and the
 job stays `running`. `openmill ls` and `openmill show` print it as
@@ -29,8 +36,7 @@ the server holds follow-ups and restacks until the turn ends. When the agent sto
 worktree and every commit pushed, the job goes back to `done` and any held follow-ups start.
 If edits are uncommitted or unpushed, openmill asks the agent once to commit and push them. If
 it stops again, the job moves to `needs_input` with a notification, and your reply resumes the
-turn. If the session ends with unpushed edits, the job stays in `needs_input`, and
-`openmill requeue <id>` moves it back to `done`.
+turn. Or run `openmill requeue <id>` to move it back to `done`.
 
 Once a job has a draft PR, the server checks it with conditional GitHub REST requests as often as
 once a second. Those return `304 Not Modified` until something changes and don't count against
@@ -88,7 +94,7 @@ the parent, is reconciled the same way without waiting for the parent to merge.
 | `needs_input`   | The agent stopped to ask something. Answer in the window                 |
 | `awaiting_push` | A gated follow-up committed changes. Reply or `requeue` to push them     |
 | `done`          | The draft PR is open and the server is watching it                       |
-| `failed`        | The session ended without a PR. `requeue` resumes it                     |
+| `failed`        | The run hit an error. `requeue` resumes it                               |
 | `merged`        | The PR merged                                                            |
 | `closed`        | The PR closed without merging. Reopening it moves the job back to `done` |
 | `cancelled`     | You ran `openmill cancel`                                                |

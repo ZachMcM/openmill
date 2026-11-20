@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_CONFIG } from "@openmill/core";
@@ -163,23 +163,21 @@ describe("startup reconciliation", () => {
     });
   });
 
-  it("fails a running job whose window is gone or whose agent exited", async () => {
+  it("leaves a running job alone when its window is gone or its agent exited", async () => {
     const gone = job("login", "running", "block:a");
     const exited = job("signup", "running", "block:b");
 
     await reconcile(terminal([{ blockId: "block:b", label: "signup", alive: false }]));
 
-    expect(getJob(db, gone)?.state).toBe("failed");
-    expect(getJob(db, exited)?.state).toBe("failed");
-    expect(latestRun(db, exited)?.result?.reason).toMatch(/window closed/);
-    expect(latestRun(db, exited)?.endedAt).toBeInstanceOf(Date);
+    for (const key of [gone, exited]) {
+      expect(getJob(db, key)?.state).toBe("running");
+      expect(latestRun(db, key)).toMatchObject({ result: null, endedAt: null });
+    }
 
-    const capture = join(jobDir(paths, repo, "signup"), "runs", `${latestRun(db, exited)?.id}.txt`);
-
-    expect(readFileSync(capture, "utf8")).toBe("screen of block:b");
+    expect(existsSync(join(jobDir(paths, repo, "signup"), "runs"))).toBe(false);
   });
 
-  it("fails only the jobs whose terminal can't be reached", async () => {
+  it("leaves every job as it was when a terminal can't be reached", async () => {
     const key = job("login", "running", "block:a");
     const done = job("signup", "done", "block:b");
     const herdrJob = job("search", "running", "w1:p2", "herdr");
@@ -190,8 +188,8 @@ describe("startup reconciliation", () => {
       terminal([{ blockId: "w1:p2", label: "search", alive: true }]),
     );
 
-    expect(getJob(db, key)?.state).toBe("failed");
-    expect(latestRun(db, key)?.result?.reason).toBe("rex not found");
+    expect(getJob(db, key)?.state).toBe("running");
+    expect(latestRun(db, key)?.result).toBeNull();
     expect(getJob(db, done)?.state).toBe("done");
     expect(getJob(db, herdrJob)?.state).toBe("running");
   });
@@ -206,16 +204,13 @@ describe("startup reconciliation", () => {
       expect(getJob(db, key)).toMatchObject({ state: "done", blockedReason: null });
     });
 
-    it("moves to needs_input instead of failed when unpushed work outlives its window", async () => {
+    it("stays running when unpushed work outlives its window", async () => {
       const key = editTurn("login", "block:a");
 
       vi.mocked(branchState).mockResolvedValue({ progressed: true, unpushed: true, dirty: false });
       await reconcile(terminal([]));
 
-      expect(getJob(db, key)).toMatchObject({
-        state: "needs_input",
-        blockedReason: "the session ended with uncommitted or unpushed edits",
-      });
+      expect(getJob(db, key)).toMatchObject({ state: "running", blockedReason: null });
       expect(latestRun(db, key)?.result).toEqual({ status: "done" });
     });
   });

@@ -31,13 +31,9 @@ import {
 } from "./lifecycle.ts";
 import { permissionMode } from "./session.ts";
 
-const NO_PR_REASON = "the agent session ended without a draft PR";
-
-const UNPUSHED_REASON = "the follow-up session ended before its changes were pushed";
-
 const EDIT_UNPUSHED_REASON = "the agent stopped with uncommitted or unpushed edits";
 
-const EDIT_GONE_REASON = "the session ended with uncommitted or unpushed edits";
+const RESUMING_EVENTS: ReadonlyArray<HookEvent["type"]> = ["tool_use", "permission_wait"];
 
 export interface HookResult {
   reply: unknown;
@@ -68,10 +64,7 @@ export async function handleHook(
     return { reply: null };
   }
 
-  const current =
-    parsed.type === "stop" || parsed.type === "session_end" || parsed.type === "prompt"
-      ? job
-      : resume(ctx, job, run);
+  const current = RESUMING_EVENTS.includes(parsed.type) ? resume(ctx, job, run) : job;
 
   return { reply: await dispatch(ctx, current, run, agent, parsed), type: parsed.type };
 }
@@ -126,7 +119,7 @@ async function dispatch(
 
       return null;
     case "session_end":
-      await onSessionEnd(ctx, job, run);
+      onSessionEnd(ctx, job, run);
 
       return null;
   }
@@ -278,31 +271,14 @@ async function stopMessage(
   );
 }
 
-export async function settleEditTurn(
-  ctx: MillContext,
-  job: Job,
-  run: Run,
-  windowGone: boolean,
-): Promise<void> {
+export async function settleEditTurn(ctx: MillContext, job: Job, run: Run): Promise<void> {
   if ((await editTurnState(ctx, job, run, true)) === "done") {
     endEditTurn(ctx, job.key);
-  } else if (windowGone) {
-    leaveEditTurn(ctx, job.key);
   }
 }
 
 function endEditTurn(ctx: MillContext, key: number): void {
   transition(ctx, key, { from: SESSION_STATES, to: "done", fields: { blockedReason: null } });
-}
-
-function leaveEditTurn(ctx: MillContext, key: number): void {
-  const fields = { blockedReason: EDIT_GONE_REASON };
-
-  if (transition(ctx, key, { from: ["running"], to: "needs_input", fields })) {
-    notify(ctx, key, "running", "needs_input", EDIT_GONE_REASON);
-  } else if (getJob(ctx.db, key)?.state === "needs_input") {
-    updateJob(ctx.db, key, fields);
-  }
 }
 
 async function editTurnState(
@@ -361,68 +337,14 @@ function resume(ctx: MillContext, job: Job, run: Run): Job {
   return getJob(ctx.db, job.key) ?? job;
 }
 
-async function onSessionEnd(ctx: MillContext, job: Job, run: Run): Promise<void> {
-  if (!inSession(job)) {
-    if (!run.endedAt) {
-      await endRun(ctx, job, run, run.result ?? { status: "done" });
-    }
-
-    leftSession(ctx, job.key);
-
-    return;
-  }
-
-  if (inEditTurn(job, run)) {
-    await settleEditTurn(ctx, job, run, true);
-
-    return;
-  }
-
-  if (run.endedAt) {
-    return;
-  }
-
-  if (run.kind !== "feature") {
-    const outcome = await followupState(ctx, job, run);
-
-    if (outcome === "done" || (outcome === "needs_input" && (await nothingToFix(ctx, job, run)))) {
-      await endRun(ctx, job, run, { status: "done" });
-      await completeFollowup(ctx, job.key, run);
-    } else {
-      await sessionGone(ctx, job, run, outcome, UNPUSHED_REASON);
-    }
-
-    return;
-  }
-
-  const prUrl = await findDraft(ctx, job);
-
-  if (prUrl) {
-    await endRun(ctx, job, run, { status: "done" });
-    finish(ctx, job.key, prUrl);
-  } else {
-    await fail(ctx, job.key, run, NO_PR_REASON);
-  }
+function onSessionEnd(ctx: MillContext, job: Job, run: Run): void {
+  updateRun(ctx.db, run.id, { busy: false });
+  leftSession(ctx, job.key);
 }
 
 function leftSession(ctx: MillContext, key: number): void {
   if (getJob(ctx.db, key)?.blockedReason === SESSION_OPEN_REASON) {
     transition(ctx, key, { from: ["needs_input"], to: "done", fields: { blockedReason: null } });
-  }
-}
-
-export async function sessionGone(
-  ctx: MillContext,
-  job: Job,
-  run: Run,
-  outcome: FollowupOutcome,
-  reason: string,
-): Promise<void> {
-  if (outcome === "awaiting_push" && getJob(ctx.db, job.key)?.state === "running") {
-    await endRun(ctx, job, run, { status: "done" });
-    awaitPush(ctx, job.key);
-  } else {
-    await fail(ctx, job.key, run, reason);
   }
 }
 
