@@ -1,12 +1,16 @@
 #!/usr/bin/env node
+import { resolve } from "node:path";
 import {
   CONFIG_KEYS,
+  JOB_STATES,
   isConfigKey,
   parseAgent,
   parseEffort,
   parseModel,
   parsePermissionMode,
+  parseSince,
   parseTerminal,
+  type JobState,
   type ParsedValue,
 } from "@openmill/core";
 import { Argument, InvalidArgumentError, Command } from "commander";
@@ -20,7 +24,7 @@ import { hook, readStdin } from "./hook.ts";
 import { install, uninstall, update } from "./install.ts";
 import { promptNotifiers } from "./notify-prompt.ts";
 import { fitLastColumn, table, unwrap } from "./output.ts";
-import { Cancelled, fail, jobState, spin, state, warn } from "./ui.ts";
+import { Cancelled, age, fail, jobState, spin, state, warn } from "./ui.ts";
 
 function option<T>(parse: (value: string) => ParsedValue<T>) {
   return (value: string): T => {
@@ -32,6 +36,14 @@ function option<T>(parse: (value: string) => ParsedValue<T>) {
 
     return parsed.value;
   };
+}
+
+function jobStateArg(value: string): JobState {
+  if (!JOB_STATES.includes(value as JobState)) {
+    throw new Error(`unknown state "${value}" (expected one of: ${JOB_STATES.join(", ")})`);
+  }
+
+  return value as JobState;
 }
 
 async function runningClient(): Promise<Client | undefined> {
@@ -107,25 +119,46 @@ program
 program
   .command("ls")
   .description("list jobs")
-  .action(async () => {
-    const { jobs } = await unwrap((await connect()).jobs.$get());
-    const header = ["ID", "STATE", "SESSION", "PR", "REASON"];
+  .option("--since <when>", "only jobs updated since a duration like 3d or a date")
+  .option("--state <states...>", "only jobs in these states, comma-separated or repeated")
+  .option("--repo <path>", "only jobs in the repo at this path")
+  .option("-a, --all", "include merged, cancelled, and closed jobs")
+  .action(async (options: { since?: string; state?: string[]; repo?: string; all?: boolean }) => {
+    const states = options.state?.flatMap((value) => value.split(",")).map(jobStateArg);
+    const query = {
+      since:
+        options.since === undefined
+          ? undefined
+          : parseSince(options.since, new Date()).toISOString(),
+      state: states,
+      repo: options.repo === undefined ? undefined : resolve(options.repo),
+      all: options.all ? ("true" as const) : undefined,
+    };
+    const { jobs, hidden } = await unwrap((await connect()).jobs.$get({ query }));
+    const header = ["ID", "STATE", "UPDATED", "SESSION", "PR", "REASON"];
 
     console.log(
-      table(
-        header,
-        fitLastColumn(
-          header,
-          jobs.map((job) => [
-            pc.bold(job.id),
-            jobState(job),
-            pc.dim(job.sessionId ?? ""),
-            job.prUrl ?? "",
-            job.reason ?? "",
-          ]),
-        ),
-      ),
+      jobs.length === 0
+        ? pc.dim("no matching jobs")
+        : table(
+            header,
+            fitLastColumn(
+              header,
+              jobs.map((job) => [
+                pc.bold(job.id),
+                jobState(job),
+                age(job.updatedAt),
+                pc.dim(job.sessionId ?? ""),
+                job.prUrl ?? "",
+                job.reason ?? "",
+              ]),
+            ),
+          ),
     );
+
+    if (hidden > 0) {
+      console.log(pc.dim(`${hidden} finished ${hidden === 1 ? "job" : "jobs"} hidden (use --all)`));
+    }
   });
 
 program

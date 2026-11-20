@@ -6,6 +6,7 @@ import {
   addRequestSchema,
   configSetSchema,
   hookRequestSchema,
+  jobListQuerySchema,
   jobQuerySchema,
   notifierTestSchema,
 } from "./api.ts";
@@ -51,7 +52,9 @@ export function createApp(mill: Mill, { version, onShutdown }: AppOptions) {
     .post("/jobs", validate("json", addRequestSchema), async (c) =>
       c.json({ jobs: await mill.add(c.req.valid("json")) }),
     )
-    .get("/jobs", async (c) => c.json({ jobs: await mill.list() }))
+    .get("/jobs", validate("query", jobListQuerySchema), async (c) =>
+      c.json(await mill.list(c.req.valid("query"))),
+    )
     .get("/jobs/:id", validate("query", jobQuerySchema), async (c) => {
       const job = await mill.resolve(c.req.param("id"), c.req.valid("query").repo);
 

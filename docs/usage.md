@@ -4,7 +4,10 @@ This page lists the `openmill` commands and how `openmill add` queues docs.
 
 ```sh
 openmill add docs/login.md        # queue a doc (and the docs it depends on)
-openmill ls                       # list jobs
+openmill ls                       # list unfinished jobs
+openmill ls --all                 # include merged, cancelled, and closed jobs
+openmill ls --since 2d --state failed   # failed jobs updated in the last two days
+openmill ls --repo .              # jobs in the current repo
 openmill open login               # focus the job's window
 openmill show login               # worktree, window, session, and transcript
 openmill cancel login             # close the window and cancel the job
@@ -19,6 +22,13 @@ openmill config list
 openmill server status
 openmill server stop
 ```
+
+Plain `openmill ls` hides `merged`, `cancelled`, and `closed` jobs and says how many it hid. `-a`
+or `--all` shows them. `--since` takes a duration (`30m`, `2h`, `3d`, `1w`), a date
+(`2026-11-01`, from local midnight), or a timestamp, and keeps jobs whose last change is that
+recent. `--state` takes states separated by commas or repeated, and shows exactly those states,
+finished ones included. `--repo` keeps jobs from the git repo that holds the path. The `UPDATED`
+column shows how long ago each job last changed.
 
 `openmill add` takes files or directories. For a directory, it queues every `.md` file under it
 that has an `id`, skips files without one, and pulls in each doc's dependencies even when they live

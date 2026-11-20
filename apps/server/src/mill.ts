@@ -9,6 +9,7 @@ import {
   assertTransition,
   canTransition,
   checkGraph,
+  filterJobs,
   jobsToStart,
   resolveEffort,
   terminalAgentError,
@@ -40,7 +41,14 @@ import {
 } from "@openmill/db";
 import { APPROVED_MESSAGE } from "./agent/prompt.ts";
 import type { Agent } from "./agent/types.ts";
-import type { AddAction, AddRequest, HookTarget, JobDetail, JobSummary } from "./api.ts";
+import type {
+  AddAction,
+  AddRequest,
+  HookTarget,
+  JobDetail,
+  JobListQuery,
+  JobSummary,
+} from "./api.ts";
 import { writeConfigValue } from "./config-store.ts";
 import { ApiError } from "./errors.ts";
 import { gitRoot } from "./git.ts";
@@ -276,20 +284,35 @@ export class Mill {
     return plan.map(({ doc, action }) => ({ id: doc.id, action: action as AddAction }));
   }
 
-  async list(): Promise<JobSummary[]> {
+  async list({
+    since,
+    state,
+    repo,
+    all,
+  }: JobListQuery): Promise<{ jobs: JobSummary[]; hidden: number }> {
     const { db } = this.ctx;
 
     if ((await this.detectHandFinished(listJobs(db))).size > 0) {
       this.schedule();
     }
 
-    const jobs = listJobs(db);
+    const repoPath = repo
+      ? await gitRoot(repo).catch(() => {
+          throw new ApiError(400, `${repo} is not a git repository`);
+        })
+      : undefined;
+    const { jobs, hidden } = filterJobs(listJobs(db), {
+      since: since === undefined ? undefined : new Date(since),
+      states: state === undefined ? undefined : [state].flat(),
+      repo: repoPath,
+      all: all === "true",
+    });
     const runs = latestRuns(
       db,
       jobs.map((job) => job.key),
     );
 
-    return jobs.map((job) => summary(job, runs.get(job.key)));
+    return { jobs: jobs.map((job) => summary(job, runs.get(job.key))), hidden };
   }
 
   async resolve(id: string, repo?: string): Promise<Job> {
@@ -800,6 +823,7 @@ function summary(job: Job, run: Run | undefined): JobSummary {
     sessionId: job.sessionId,
     prUrl: job.prUrl,
     waitingSince: job.state === "running" ? (run?.waitingSince?.getTime() ?? null) : null,
+    updatedAt: job.updatedAt.getTime(),
   };
 }
 

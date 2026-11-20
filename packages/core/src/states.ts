@@ -13,6 +13,8 @@ export const JOB_STATES = [
 
 export type JobState = (typeof JOB_STATES)[number];
 
+export const FINISHED_STATES: readonly JobState[] = ["merged", "cancelled", "closed"];
+
 const TRANSITIONS: Record<JobState, readonly JobState[]> = {
   queued: ["running", "blocked", "queued", "cancelled", "merged", "closed"],
   running: [
