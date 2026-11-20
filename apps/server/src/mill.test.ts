@@ -17,7 +17,6 @@ import { claudeAgent } from "./agent/claude.ts";
 import type { Agent } from "./agent/types.ts";
 import { branchState } from "./git.ts";
 import type { GitHub } from "./github.ts";
-import type { Host } from "./host/types.ts";
 import { Mill } from "./mill.ts";
 import { jobDir, resolvePaths, type Paths } from "./paths.ts";
 import type { Terminal, TerminalBlock } from "./terminal/types.ts";
@@ -108,7 +107,6 @@ function mill(term: Terminal, gh = github(), herdr = terminal([])): Mill {
     config: DEFAULT_CONFIG,
     notifiers: [],
     terminals: { rex: term, herdr, tmux: terminal([]) },
-    host: {} as Host,
     agents: { claude: claudeAgent, codex: {} as Agent },
     github: gh,
     hookCommand: ["openmill"],
@@ -220,23 +218,5 @@ describe("startup reconciliation", () => {
       });
       expect(latestRun(db, key)?.result).toEqual({ status: "done" });
     });
-  });
-});
-
-describe("hooks from T3 Code threads", () => {
-  it("map to the latest run in the thread when there's no run id, and ignore unknown threads", async () => {
-    const key = job("login", "running", "mcp:thread-1", "t3code");
-    const instance = mill(terminal([]));
-    const payload = { session_id: "s1", transcript_path: "/t/login.jsonl", prompt: "go" };
-
-    await expect(
-      instance.hook({ threadId: "mcp:unknown" }, "UserPromptSubmit", payload),
-    ).resolves.toBeNull();
-    expect(latestRun(db, key)?.transcriptPath).toBeNull();
-
-    await instance.hook({ threadId: "mcp:thread-1" }, "UserPromptSubmit", payload);
-    await instance.close();
-
-    expect(latestRun(db, key)?.transcriptPath).toBe("/t/login.jsonl");
   });
 });

@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import * as p from "@clack/prompts";
 import {
@@ -7,7 +7,6 @@ import {
   CLAUDE_EFFORTS,
   CODEX_MODELS_COMMAND,
   DEFAULT_CONFIG,
-  HOST_TERMINAL,
   READY_CHECKS,
   TERMINAL_CHECKS,
   parseCodexModels,
@@ -15,17 +14,8 @@ import {
   type AgentName,
   type ModelEfforts,
   type TerminalName,
-  type WindowTerminal,
 } from "@openmill/core";
-import { PLUGIN_NAME } from "@openmill/assets";
-import {
-  hooksSettings,
-  readConfig,
-  resolvePaths,
-  t3Command,
-  writeConfigValue,
-  type Paths,
-} from "@openmill/server";
+import { readConfig, resolvePaths, writeConfigValue } from "@openmill/server";
 import type { Client } from "@openmill/server/client";
 import pc from "picocolors";
 import pkg from "../package.json" with { type: "json" };
@@ -92,22 +82,17 @@ async function checkPrerequisites(): Promise<Ready> {
     }
   }
 
-  const agents = await readyAgents();
   const terminals: TerminalName[] = [];
 
-  for (const terminal of Object.keys(TERMINAL_CHECKS) as WindowTerminal[]) {
+  for (const terminal of Object.keys(TERMINAL_CHECKS) as TerminalName[]) {
     if (await passes(TERMINAL_CHECKS[terminal])) {
       terminals.push(terminal);
     }
   }
 
-  if (agents.includes("claude") && (await hasCommand(t3Command()))) {
-    terminals.push(HOST_TERMINAL);
-  }
-
   if (terminals.length === 0) {
     throw new Error(
-      "No terminal is ready. Install rex, herdr, tmux, or T3 Code; openmill runs every agent in a terminal window or a T3 thread.",
+      "No terminal is ready. Install rex, herdr, or tmux; openmill runs every agent in a terminal window.",
     );
   }
 
@@ -115,7 +100,7 @@ async function checkPrerequisites(): Promise<Ready> {
     p.log.warn(`gh isn't signed in. Run ${pc.bold("gh auth login")} before queuing jobs.`);
   }
 
-  return { agents, terminals };
+  return { agents: await readyAgents(), terminals };
 }
 
 async function passes(checks: Array<[string, ...string[]]>): Promise<boolean> {
@@ -150,35 +135,14 @@ function runningBin(): string {
   return realpathSync(process.argv[1] as string);
 }
 
-function fromSource(bin: string): boolean {
-  return !bin.split(/[\\/]/).includes("node_modules");
-}
-
 async function globalRoot(): Promise<string> {
   return realpathSync((await runOrThrow("npm", ["root", "-g"])).trim());
-}
-
-async function installedBin(): Promise<string> {
-  const bin = runningBin();
-
-  return fromSource(bin) ? bin : join(await globalRoot(), pkg.name, pkg.bin.openmill);
-}
-
-async function setUpT3(paths: Paths): Promise<void> {
-  await writeFile(
-    paths.t3Hooks,
-    hooksSettings(["env", `OPENMILL_HOME=${paths.home}`, process.execPath, await installedBin()]),
-  );
-  p.note(
-    `To run jobs in T3 Code, add a Claude provider named "openmill" in T3 Code under Settings > Providers, with these launch args:\n  --settings ${paths.t3Hooks} --plugin-dir ${join(paths.home, "plugin", PLUGIN_NAME)}`,
-    "T3 Code",
-  );
 }
 
 async function installGlobal(): Promise<string | undefined> {
   const bin = runningBin();
 
-  if (fromSource(bin)) {
+  if (!bin.split(/[\\/]/).includes("node_modules")) {
     return "running from source, skipped";
   }
 
@@ -249,7 +213,6 @@ const TERMINAL_LABELS: Record<TerminalName, string> = {
   rex: "Rex",
   herdr: "herdr",
   tmux: "tmux",
-  t3code: "T3 Code",
 };
 
 async function promptConfig(path: string, { agents, terminals }: Ready): Promise<void> {
@@ -431,10 +394,6 @@ export async function install(options: InstallOptions): Promise<void> {
       await setUpNotifiers();
     }
 
-    if (terminals.includes(HOST_TERMINAL)) {
-      await setUpT3(paths);
-    }
-
     p.note(
       `openmill add docs/feature.md\nopenmill ls${
         agents.includes("claude")
@@ -541,7 +500,6 @@ export async function uninstall(options: UninstallOptions): Promise<void> {
     }
 
     await rm(join(paths.home, "plugin"), { recursive: true, force: true });
-    await rm(paths.t3Token, { force: true });
 
     await step("Removing the global package", async () => {
       await run("npm", ["uninstall", "-g", pkg.name]);

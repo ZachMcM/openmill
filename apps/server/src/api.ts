@@ -46,7 +46,6 @@ export interface JobDetail extends JobSummary {
   window: string | null;
   transcriptPath: string | null;
   capturePath: string | null;
-  link: string | null;
   lastResult: unknown;
 }
 
@@ -63,11 +62,9 @@ export type JobListQuery = z.infer<typeof jobListQuerySchema>;
 
 export const configSetSchema = z.object({ value: z.string() });
 
-export const hookRequestSchema = z.union([
-  z.object({ runId: z.number().int().positive(), payload: z.unknown() }),
-  z.object({ threadId: z.string().min(1), payload: z.unknown() }),
-]);
-
-export type HookTarget = { runId: number } | { threadId: string };
+export const hookRequestSchema = z.object({
+  runId: z.number().int().positive(),
+  payload: z.unknown(),
+});
 
 export const notifierTestSchema = z.object({ name: z.string().min(1).optional() });

@@ -13,8 +13,6 @@ export interface Paths {
   rexSession: string;
   herdrWorkspace: string;
   tmuxSession: string;
-  t3Hooks: string;
-  t3Token: string;
   jobsDir: string;
   worktreesDir: string;
 }
@@ -33,8 +31,6 @@ export function resolvePaths(): Paths {
     rexSession: join(home, "rex-session"),
     herdrWorkspace: join(home, "herdr-workspace"),
     tmuxSession: join(home, "tmux-session"),
-    t3Hooks: join(home, "t3-hooks.json"),
-    t3Token: join(home, "t3-token.json"),
     jobsDir: join(home, "jobs"),
     worktreesDir: join(home, "worktrees"),
   };

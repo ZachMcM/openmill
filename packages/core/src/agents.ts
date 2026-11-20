@@ -1,4 +1,4 @@
-import { CLAUDE_EFFORTS, DEFAULT_CONFIG, type AgentName, type WindowTerminal } from "./config.ts";
+import { CLAUDE_EFFORTS, DEFAULT_CONFIG, type AgentName, type TerminalName } from "./config.ts";
 
 export const READY_CHECKS: Record<AgentName, Array<[string, ...string[]]>> = {
   claude: [
@@ -11,7 +11,7 @@ export const READY_CHECKS: Record<AgentName, Array<[string, ...string[]]>> = {
   ],
 };
 
-export const TERMINAL_CHECKS: Record<WindowTerminal, Array<[string, ...string[]]>> = {
+export const TERMINAL_CHECKS: Record<TerminalName, Array<[string, ...string[]]>> = {
   rex: [["rex", "version"]],
   herdr: [["herdr", "--version"]],
   tmux: [["tmux", "-V"]],

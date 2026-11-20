@@ -8,7 +8,7 @@ Config lives in `~/.openmill/config.json`. Read and change it with `openmill con
 | `concurrency`       | `2`      | Jobs that can run at once. `needs_input` jobs don't count               |
 | `agent`             | `claude` | The coding agent                                                        |
 | `permission_mode`   | `auto`   | `auto` for the agent's auto mode, or `bypass` to skip prompts           |
-| `terminal`          | `rex`    | `rex`, `herdr`, `tmux`, or `t3code`, where jobs run                     |
+| `terminal`          | `rex`    | `rex`, `herdr`, or `tmux`, where job windows open                       |
 | `model`             | unset    | Model passed to the agent. Unset uses the agent's default               |
 | `effort`            | `medium` | A level the agent and model support (see below)                         |
 | `notify_desktop`    | `true`   | Send desktop notifications                                              |

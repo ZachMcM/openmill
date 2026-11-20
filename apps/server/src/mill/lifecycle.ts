@@ -1,13 +1,12 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  HOST_TERMINAL,
   SESSION_STATES,
   canTransition,
   notificationFor,
   type JobState,
   type NotificationEvent,
-  type WindowTerminal,
+  type TerminalName,
 } from "@openmill/core";
 import {
   getJob,
@@ -26,19 +25,11 @@ import type { MillContext } from "./context.ts";
 export const SESSION_OPEN_REASON =
   "someone is still using the previous session in the job's window; follow-ups start when it stops";
 
-export function hosted(job: Job): boolean {
-  return job.terminal === HOST_TERMINAL;
-}
-
 export function terminalFor(ctx: MillContext, job: Job): Terminal {
-  return ctx.terminals[(job.terminal ?? "rex") as WindowTerminal];
+  return ctx.terminals[(job.terminal ?? "rex") as TerminalName];
 }
 
 export async function windowAlive(ctx: MillContext, job: Job, blockId: string): Promise<boolean> {
-  if (hosted(job)) {
-    return (await ctx.host.status(blockId)).alive;
-  }
-
   return (await terminalFor(ctx, job).list()).some(
     (block) => block.blockId === blockId && block.alive,
   );
@@ -133,7 +124,7 @@ export async function endRun(
   run: Run,
   result: RunResultRecord,
 ): Promise<void> {
-  if (run.blockId && !hosted(job)) {
+  if (run.blockId) {
     try {
       await mkdir(join(jobDir(ctx.paths, job.repoPath, job.id), "runs"), { recursive: true });
       await writeFile(capturePath(ctx, job, run), await terminalFor(ctx, job).capture(run.blockId));
@@ -150,13 +141,9 @@ export async function closeWindow(ctx: MillContext, job: Job, run: Run): Promise
     return;
   }
 
-  const closing = hosted(job)
-    ? ctx.host.stop(run.blockId)
-    : terminalFor(ctx, job).close(run.blockId);
-
-  await closing.catch((error: unknown) =>
-    ctx.log(`closing window ${run.blockId} failed: ${String(error)}`),
-  );
+  await terminalFor(ctx, job)
+    .close(run.blockId)
+    .catch((error: unknown) => ctx.log(`closing window ${run.blockId} failed: ${String(error)}`));
 }
 
 export async function findDraft(ctx: MillContext, job: Job): Promise<string | undefined> {
