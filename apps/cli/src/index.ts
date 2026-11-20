@@ -77,7 +77,7 @@ program
   )
   .option(
     "--terminal <name>",
-    "terminal for these jobs: rex, herdr, tmux, or t3code",
+    "terminal for these jobs: rex, herdr, or tmux",
     option(parseTerminal),
   )
   .option("--model <name>", "model for these jobs", option(parseModel))
@@ -179,7 +179,7 @@ program
       ["session", job.sessionId ?? "-"],
       ["transcript", job.transcriptPath ?? "-"],
       ["pr", job.prUrl ?? "-"],
-      job.link ? ["thread", job.link] : ["capture", job.capturePath ?? "-"],
+      ["capture", job.capturePath ?? "-"],
       ["result", job.lastResult ? JSON.stringify(job.lastResult) : "-"],
     ];
 
@@ -193,13 +193,9 @@ program
   .description("focus a job's window in its terminal")
   .argument("<id>")
   .action(async (id: string) => {
-    const { url } = await unwrap(
+    await unwrap(
       (await connect()).jobs[":id"].open.$post({ param: { id }, query: { repo: process.cwd() } }),
     );
-
-    if (url) {
-      console.log(url);
-    }
   });
 
 program

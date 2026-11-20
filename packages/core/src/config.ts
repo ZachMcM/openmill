@@ -2,14 +2,12 @@ export const AGENTS = ["claude", "codex"] as const;
 export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export const PUSH_MODES = ["wait", "auto"] as const;
 export const PERMISSION_MODES = ["auto", "bypass"] as const;
-export const TERMINALS = ["rex", "herdr", "tmux", "t3code"] as const;
-export const HOST_TERMINAL = "t3code";
+export const TERMINALS = ["rex", "herdr", "tmux"] as const;
 
 export type AgentName = (typeof AGENTS)[number];
 export type PushMode = (typeof PUSH_MODES)[number];
 export type PermissionMode = (typeof PERMISSION_MODES)[number];
 export type TerminalName = (typeof TERMINALS)[number];
-export type WindowTerminal = Exclude<TerminalName, typeof HOST_TERMINAL>;
 
 export interface Config {
   concurrency: number;
@@ -90,12 +88,6 @@ function parseNonEmpty(name: string) {
 
 export const parseModel = parseNonEmpty("model");
 export const parseEffort = parseNonEmpty("effort");
-
-export function terminalAgentError(terminal: TerminalName, agent: AgentName): string | undefined {
-  return terminal === HOST_TERMINAL && agent === "codex"
-    ? "codex through T3 Code isn't supported yet; use --terminal rex, herdr, or tmux"
-    : undefined;
-}
 
 export function parseConfigValue(key: ConfigKey, value: string): ParsedValue<Config[ConfigKey]> {
   switch (key) {

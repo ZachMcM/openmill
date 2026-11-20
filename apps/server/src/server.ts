@@ -8,7 +8,6 @@ import { readConfig } from "./config-store.ts";
 import { ghCli } from "./github.ts";
 import { claudeAgent } from "./agent/claude.ts";
 import { codexAgent } from "./agent/codex.ts";
-import { createT3Host } from "./host/t3code.ts";
 import { Mill } from "./mill.ts";
 import { readNotifiers } from "./notifier-store.ts";
 import { resolvePaths } from "./paths.ts";
@@ -48,7 +47,6 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         herdr: createHerdrTerminal(paths.herdrWorkspace),
         tmux: createTmuxTerminal(paths.tmuxSession),
       },
-      host: createT3Host(paths),
       agents: { claude: claudeAgent, codex: codexAgent },
       github: ghCli,
       hookCommand: options.hookCommand,

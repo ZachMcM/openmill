@@ -11,14 +11,6 @@ creates the tmux session when it's missing, so tmux jobs run with no client atta
 takes your screen. Run `openmill open <id>` to watch a job, and type into its window to take it
 over. With tmux, `openmill open` switches your attached tmux client to the job's window.
 
-With [`terminal`](./configuration.md) set to `t3code`, Claude jobs run as threads in T3 Code instead, and you watch and
-answer them in the T3 app. T3 Code must be running, and the repo must be a project in it.
-`openmill install` writes `~/.openmill/t3-hooks.json` and prints the launch args for a Claude
-provider named `openmill`, which you add in T3 Code under Settings > Providers. The server signs
-in to T3 Code by minting a pairing code with the `t3` CLI and keeps the token in
-`~/.openmill/t3-token.json`. `openmill open` opens the thread in the T3 web app and prints its
-link. Codex jobs can't run in T3 Code yet.
-
 A job is done when its branch has a draft PR. When the agent stops without one, openmill asks it
 once to open the PR or ask its question. If it stops again, the job moves to `needs_input` and
 you get a [notification](./notifications.md). Answer in the window and the job is `running` again. A `needs_input` job

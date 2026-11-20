@@ -12,7 +12,6 @@ import {
   filterJobs,
   jobsToStart,
   resolveEffort,
-  terminalAgentError,
   waitingUpdates,
   type AgentName,
   type Config,
@@ -20,14 +19,13 @@ import {
   type EffortCheck,
   type JobState,
   type SchedulableJob,
-  type WindowTerminal,
+  type TerminalName,
 } from "@openmill/core";
 import {
   findJobsById,
   getJob,
   insertJob,
   latestRun,
-  latestRunInBlock,
   latestRuns,
   listDependencies,
   listJobs,
@@ -41,20 +39,11 @@ import {
 } from "@openmill/db";
 import { APPROVED_MESSAGE } from "./agent/prompt.ts";
 import type { Agent } from "./agent/types.ts";
-import type {
-  AddAction,
-  AddRequest,
-  HookTarget,
-  JobDetail,
-  JobListQuery,
-  JobSummary,
-} from "./api.ts";
+import type { AddAction, AddRequest, JobDetail, JobListQuery, JobSummary } from "./api.ts";
 import { writeConfigValue } from "./config-store.ts";
 import { ApiError } from "./errors.ts";
 import { gitRoot } from "./git.ts";
-import { exec } from "./exec.ts";
 import type { GitHub } from "./github.ts";
-import type { Host } from "./host/types.ts";
 import type { MillContext } from "./mill/context.ts";
 import { applyMergeable, applyPrEvents, completeFollowup, followUp } from "./mill/followups.ts";
 import { followupState, handleHook, sessionGone } from "./mill/hooks.ts";
@@ -65,7 +54,6 @@ import {
   fail,
   findDraft,
   finish,
-  hosted,
   inSession,
   send,
   terminalFor,
@@ -84,8 +72,7 @@ export interface MillOptions {
   paths: Paths;
   config: Config;
   notifiers: NotifierEntry[];
-  terminals: Record<WindowTerminal, Terminal>;
-  host: Host;
+  terminals: Record<TerminalName, Terminal>;
   agents: Record<AgentName, Agent>;
   github: GitHub;
   hookCommand: string[];
@@ -184,12 +171,6 @@ export class Mill {
       permissionMode: request.permissionMode ?? this.ctx.config.permission_mode,
       terminal: request.terminal ?? this.ctx.config.terminal,
     };
-    const pairing = terminalAgentError(resolved.terminal, resolved.agent);
-
-    if (pairing) {
-      throw new ApiError(400, pairing);
-    }
-
     const superseded: Array<{ job: Job; run: Run }> = [];
 
     for (const { job, action } of plan) {
@@ -341,14 +322,10 @@ export class Mill {
     return match;
   }
 
-  async show(job: Job): Promise<JobDetail> {
+  show(job: Job): JobDetail {
     const run = latestRun(this.ctx.db, job.key);
     const current = getJob(this.ctx.db, job.key) ?? job;
     const capture = run ? capturePath(this.ctx, current, run) : undefined;
-    const link =
-      run?.blockId && hosted(current)
-        ? await this.ctx.host.link(run.blockId).catch(() => null)
-        : null;
 
     return {
       ...summary(current, run),
@@ -358,26 +335,15 @@ export class Mill {
       window: run?.blockId ? current.id : null,
       transcriptPath: run?.transcriptPath ?? null,
       capturePath: capture && existsSync(capture) ? capture : null,
-      link,
       lastResult: run?.result ?? null,
     };
   }
 
-  async open(job: Job): Promise<{ url?: string }> {
+  async open(job: Job): Promise<void> {
     const blockId = latestRun(this.ctx.db, job.key)?.blockId;
 
     if (!blockId) {
       throw new ApiError(409, `${job.id} has no window`);
-    }
-
-    if (hosted(job)) {
-      const url = await this.ctx.host.link(blockId);
-
-      await exec(process.platform === "darwin" ? "open" : "xdg-open", [url], process.cwd()).catch(
-        (error: unknown) => this.ctx.log(`opening ${url} failed: ${String(error)}`),
-      );
-
-      return { url };
     }
 
     const terminal = terminalFor(this.ctx, job);
@@ -387,8 +353,6 @@ export class Mill {
     }
 
     await terminal.focus(blockId);
-
-    return {};
   }
 
   async cancel(job: Job): Promise<JobState> {
@@ -416,9 +380,7 @@ export class Mill {
   async clean(): Promise<number> {
     const { db } = this.ctx;
     const blocks = perTerminal(this.ctx, (terminal) => terminal.list());
-    const jobs = listJobs(db).filter(
-      (job) => CLEANABLE_STATES.includes(job.state as JobState) && !hosted(job),
-    );
+    const jobs = listJobs(db).filter((job) => CLEANABLE_STATES.includes(job.state as JobState));
     const runs = latestRuns(
       db,
       jobs.map((job) => job.key),
@@ -493,14 +455,7 @@ export class Mill {
     return "queued";
   }
 
-  async hook(target: HookTarget, event: string, payload: unknown): Promise<unknown> {
-    const runId =
-      "runId" in target ? target.runId : latestRunInBlock(this.ctx.db, target.threadId)?.id;
-
-    if (runId === undefined) {
-      return null;
-    }
-
+  async hook(runId: number, event: string, payload: unknown): Promise<unknown> {
     const { reply, type } = await handleHook(this.ctx, runId, event, payload);
 
     // Tool-use hooks fire on every agent tool call, and neither they, permission waits, nor
@@ -674,17 +629,9 @@ export class Mill {
         return { gone: true, unreachable: undefined };
       }
 
-      if (!hosted(job)) {
-        const { alive, unreachable } = await listing(job);
+      const { alive, unreachable } = await listing(job);
 
-        return { gone: !alive.has(blockId), unreachable };
-      }
-
-      try {
-        return { gone: !(await this.ctx.host.status(blockId)).alive, unreachable: undefined };
-      } catch (error) {
-        return { gone: true, unreachable: (error as Error).message };
-      }
+      return { gone: !alive.has(blockId), unreachable };
     };
     const jobs = listJobs(db).filter((job) => inSession(job));
 

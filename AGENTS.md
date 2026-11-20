@@ -18,30 +18,28 @@ Use pnpm for everything. Never use npm or yarn, and never edit `pnpm-lock.yaml` 
 
 ## Boundaries
 
-| Package                                | Owns                                                                                                                                   | May depend on            |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
-| `@openmill/core` (`packages/core`)     | Design doc parsing, dependency graph, state transitions, scheduling decisions, config rules                                            | nothing in the workspace |
-| `@openmill/db` (`packages/db`)         | Drizzle schema, migrations, queries                                                                                                    | nothing in the workspace |
-| `@openmill/assets` (`packages/assets`) | The workflow skill and review agents, laid out as a Claude Code plugin                                                                 | nothing in the workspace |
-| `@openmill/server` (`apps/server`)     | Hono routes, scheduler, runs, git, `gh`, `rex`, `herdr`, `tmux`, and `t3` calls, T3 Code MCP calls, terminal, host, and agent adapters | core, db, assets         |
-| `openmill` (`apps/cli`)                | Commander commands, the typed client, server auto-start, `install`, `update`, and `uninstall`                                          | core, server, assets     |
+| Package                                | Owns                                                                                                   | May depend on            |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------ |
+| `@openmill/core` (`packages/core`)     | Design doc parsing, dependency graph, state transitions, scheduling decisions, config rules            | nothing in the workspace |
+| `@openmill/db` (`packages/db`)         | Drizzle schema, migrations, queries                                                                    | nothing in the workspace |
+| `@openmill/assets` (`packages/assets`) | The workflow skill and review agents, laid out as a Claude Code plugin                                 | nothing in the workspace |
+| `@openmill/server` (`apps/server`)     | Hono routes, scheduler, runs, git, `gh`, `rex`, `herdr`, and `tmux` calls, terminal and agent adapters | core, db, assets         |
+| `openmill` (`apps/cli`)                | Commander commands, the typed client, server auto-start, `install`, `update`, and `uninstall`          | core, server, assets     |
 
 - `core` does no I/O: no filesystem, network, processes, or clock. Keep it pure so it stays easy to unit test.
 - The server is the only process that opens SQLite. The CLI never imports `@openmill/db` and talks to the server only through the typed client from `@openmill/server/client`.
 - Request and response shapes come from the server's Hono routes. Don't redeclare them in the CLI.
-- Only the server runs `git`, `gh`, `rex`, `herdr`, `tmux`, `t3`, and agents, and only the server talks to
-  T3 Code's MCP endpoint. Only the server sends notifications, including Discord and Slack webhook
-  requests. The exceptions are in the CLI.
+- Only the server runs `git`, `gh`, `rex`, `herdr`, `tmux`, and agents. Only the server sends
+  notifications, including Discord and Slack webhook requests. The exceptions are in the CLI.
   `openmill install`, `update`, and `uninstall` run before a server exists. They may check that
-  `git` and `gh` are installed, check `rex`, `herdr`, `tmux`, or `t3`, run each agent's readiness check, run `npm`,
+  `git` and `gh` are installed, check `rex`, `herdr`, or `tmux`, run each agent's readiness check, run `npm`,
   `claude plugin`, `codex plugin`, and `codex debug models`, and copy the Codex review agents,
   and nothing else. `openmill install` may start the server through the typed client to set up
   notifiers. The hidden `openmill hook` command runs inside agent sessions and only forwards hook
   JSON to the server.
 - Every terminal implements the `Terminal` interface in `apps/server/src/terminal/types.ts`, and
-  every agent implements the `Agent` interface in `apps/server/src/agent/types.ts`. T3 Code
-  implements the `Host` interface in `apps/server/src/host/types.ts`. Code specific to one
-  terminal, host, or agent stays in its adapter.
+  every agent implements the `Agent` interface in `apps/server/src/agent/types.ts`. Code specific
+  to one terminal or agent stays in its adapter.
 - Keep the workflow skill usable by hand. Pass run-specific facts in the prompt instead of editing the skill for openmill.
 
 ## Design and infra
@@ -55,7 +53,7 @@ Use pnpm for everything. Never use npm or yarn, and never edit `pnpm-lock.yaml` 
   part of the server with a timer, and its output is one more event that triggers a scheduling
   pass.
 - Agents run in auto mode by default, where the agent's own reviewer approves each action, or with full local permissions when `permission_mode` is `bypass`. Never weaken the draft-only, no-merge rules in the workflow skill, and keep the `PreToolUse` draft gate on every run.
-- Runs need macOS or Linux and a terminal adapter (Rex, herdr, tmux, or t3code). Every agent runs as an interactive session in a terminal window or a T3 Code thread.
+- Runs need macOS or Linux and a terminal adapter (Rex, herdr, or tmux). Every agent runs as an interactive session in a terminal window.
 - Target Node 24 or later and ES modules. Workspace packages export TypeScript source directly. Only the CLI is bundled, with tsdown.
 - The CLI bundle inlines `@openmill/*` packages, so any third-party package they import at runtime must also be in `apps/cli` `dependencies`. Files found through `import.meta.url` must be copied into `dist/` in `apps/cli/tsdown.config.ts`.
 

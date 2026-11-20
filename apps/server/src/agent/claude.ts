@@ -62,8 +62,8 @@ async function readConfig(path: string): Promise<z.infer<typeof configSchema>> {
   }
 }
 
-export function hooksSettings(hookCommand: string[]): string {
-  const base = hookCommand.map(shellQuote).join(" ");
+function hooksSettings(input: RunInput): string {
+  const base = input.hookCommand.map(shellQuote).join(" ");
   const hook = (event: keyof typeof HOOK_TYPES) => ({
     hooks: [{ type: "command", command: `${base} hook ${event}` }],
   });
@@ -86,7 +86,7 @@ function sharedArgs(input: RunInput): string[] {
     "--agents",
     JSON.stringify(loadClaudeAgents()),
     "--settings",
-    hooksSettings(input.hookCommand),
+    hooksSettings(input),
     ...(input.model ? ["--model", input.model] : []),
     "--effort",
     input.effort,
